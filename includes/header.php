@@ -96,6 +96,9 @@ function nav_icon(string $name): string
       <button class="icon-btn" id="menuBtn" type="button" aria-label="Open menu">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
+      <div class="topbar-title" title="<?= e($pageTitle ?? 'Dashboard') ?>">
+        <?= e($pageTitle ?? 'Dashboard') ?>
+      </div>
       <form class="top-search" action="<?= e(base_url('pages/transactions.php')) ?>" method="get">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
         <input type="search" name="q" placeholder="Search transactions…" value="<?= e(get('q', '')) ?>">
@@ -103,7 +106,7 @@ function nav_icon(string $name): string
       <div class="topbar-right">
         <a class="user-pill" href="<?= e(base_url('pages/profile.php')) ?>" title="Profile">
           <div class="avatar"><?= e(strtoupper(substr($user['name'] ?? 'A', 0, 1))) ?></div>
-          <div>
+          <div class="user-meta">
             <div class="user-name"><?= e($user['name'] ?? '') ?></div>
             <div class="user-role"><?= e(ucfirst($user['role'] ?? 'admin')) ?></div>
           </div>
@@ -115,8 +118,8 @@ function nav_icon(string $name): string
       <?php if ($flash): ?>
         <div class="alert alert-<?= e($flash['type']) ?>"><?= e($flash['message']) ?></div>
       <?php endif; ?>
-      <div class="page-head">
-        <div>
+      <div class="page-head<?= empty($pageActions) && empty($pageSub) ? ' page-head-desktop-only' : '' ?>">
+        <div class="page-head-text">
           <h1 class="page-title"><?= e($pageTitle ?? 'Dashboard') ?></h1>
           <?php if (!empty($pageSub)): ?>
             <p class="page-sub"><?= e($pageSub) ?></p>
