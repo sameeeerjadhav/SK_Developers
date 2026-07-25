@@ -7,12 +7,14 @@
     if (!sidebar) return;
     sidebar.classList.remove('open');
     if (overlay) overlay.classList.remove('show');
+    document.body.classList.remove('sidebar-open');
   }
 
   function openSidebar() {
     if (!sidebar) return;
     sidebar.classList.add('open');
     if (overlay) overlay.classList.add('show');
+    document.body.classList.add('sidebar-open');
   }
 
   if (menuBtn) {
@@ -22,6 +24,19 @@
     });
   }
   if (overlay) overlay.addEventListener('click', closeSidebar);
+
+  // Close drawer after tapping a nav link on mobile
+  if (sidebar) {
+    sidebar.querySelectorAll('a.nav-link').forEach(function (link) {
+      link.addEventListener('click', function () {
+        if (window.matchMedia('(max-width: 900px)').matches) closeSidebar();
+      });
+    });
+  }
+
+  window.addEventListener('resize', function () {
+    if (window.matchMedia('(min-width: 901px)').matches) closeSidebar();
+  });
 
   function escapeHtml(str) {
     return String(str)
@@ -48,7 +63,6 @@
     });
   }
 
-  // Company → projects cascade
   document.querySelectorAll('[data-company-projects]').forEach(function (select) {
     select.addEventListener('change', function () {
       var targetId = select.getAttribute('data-company-projects');
@@ -68,7 +82,6 @@
     });
   });
 
-  // Company → bank accounts cascade
   document.querySelectorAll('[data-company-accounts]').forEach(function (select) {
     select.addEventListener('change', function () {
       var targetId = select.getAttribute('data-company-accounts');
@@ -88,7 +101,6 @@
     });
   });
 
-  // Company → partners cascade
   document.querySelectorAll('[data-company-partners]').forEach(function (select) {
     select.addEventListener('change', function () {
       var targetId = select.getAttribute('data-company-partners');
@@ -108,7 +120,6 @@
     });
   });
 
-  // Confirm deletes
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {
       if (!confirm(el.getAttribute('data-confirm') || 'Are you sure?')) {
