@@ -38,6 +38,39 @@
     if (window.matchMedia('(min-width: 901px)').matches) closeSidebar();
   });
 
+  // User account dropdown
+  var userMenu = document.getElementById('userMenu');
+  var userMenuBtn = document.getElementById('userMenuBtn');
+  var userDropdown = document.getElementById('userDropdown');
+
+  function closeUserMenu() {
+    if (!userMenu || !userMenuBtn || !userDropdown) return;
+    userMenu.classList.remove('open');
+    userMenuBtn.setAttribute('aria-expanded', 'false');
+    userDropdown.hidden = true;
+  }
+
+  function openUserMenu() {
+    if (!userMenu || !userMenuBtn || !userDropdown) return;
+    userMenu.classList.add('open');
+    userMenuBtn.setAttribute('aria-expanded', 'true');
+    userDropdown.hidden = false;
+  }
+
+  if (userMenuBtn && userDropdown) {
+    userMenuBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (userMenu.classList.contains('open')) closeUserMenu();
+      else openUserMenu();
+    });
+    document.addEventListener('click', function (e) {
+      if (!userMenu.contains(e.target)) closeUserMenu();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeUserMenu();
+    });
+  }
+
   function escapeHtml(str) {
     return String(str)
       .replace(/&/g, '&amp;')
