@@ -1,0 +1,202 @@
+-- Sai Kuber Developers — Finance ERP
+-- Import this in Hostinger phpMyAdmin (create DB first, then import)
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS deposits;
+DROP TABLE IF EXISTS bank_loans;
+DROP TABLE IF EXISTS assets;
+DROP TABLE IF EXISTS partners;
+DROP TABLE IF EXISTS bank_accounts;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS companies;
+DROP TABLE IF EXISTS users;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE users (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(160) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  role ENUM('admin','staff') NOT NULL DEFAULT 'admin',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE companies (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(160) NOT NULL,
+  slug VARCHAR(80) NOT NULL UNIQUE,
+  type ENUM('main','sub') NOT NULL DEFAULT 'sub',
+  parent_id INT UNSIGNED NULL,
+  description TEXT NULL,
+  status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_companies_parent FOREIGN KEY (parent_id) REFERENCES companies(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE projects (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NOT NULL,
+  name VARCHAR(180) NOT NULL,
+  location VARCHAR(180) NULL,
+  status ENUM('planning','active','completed','on_hold') NOT NULL DEFAULT 'active',
+  start_date DATE NULL,
+  end_date DATE NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_projects_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE categories (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  section ENUM('credit','land_purchase','expense','general') NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  slug VARCHAR(80) NOT NULL,
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_section_slug (section, slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE bank_accounts (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NOT NULL,
+  account_name VARCHAR(160) NOT NULL,
+  bank_name VARCHAR(160) NOT NULL,
+  account_number VARCHAR(64) NULL,
+  ifsc VARCHAR(32) NULL,
+  opening_balance DECIMAL(14,2) NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  status ENUM('active','closed') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_bank_accounts_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE partners (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NULL,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(40) NULL,
+  email VARCHAR(160) NULL,
+  share_percent DECIMAL(5,2) NULL,
+  invested_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_partners_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE assets (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  asset_type VARCHAR(80) NULL,
+  purchase_date DATE NULL,
+  purchase_value DECIMAL(14,2) NOT NULL DEFAULT 0,
+  current_value DECIMAL(14,2) NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_assets_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE bank_loans (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NOT NULL,
+  project_id INT UNSIGNED NULL,
+  lender_name VARCHAR(160) NOT NULL,
+  loan_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  outstanding_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  interest_rate DECIMAL(6,2) NULL,
+  start_date DATE NULL,
+  end_date DATE NULL,
+  status ENUM('active','closed') NOT NULL DEFAULT 'active',
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_loans_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_loans_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE deposits (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NOT NULL,
+  bank_account_id INT UNSIGNED NULL,
+  title VARCHAR(160) NOT NULL,
+  amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  deposit_date DATE NULL,
+  maturity_date DATE NULL,
+  interest_rate DECIMAL(6,2) NULL,
+  status ENUM('active','matured','withdrawn') NOT NULL DEFAULT 'active',
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_deposits_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_deposits_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE transactions (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  company_id INT UNSIGNED NOT NULL,
+  project_id INT UNSIGNED NULL,
+  bank_account_id INT UNSIGNED NULL,
+  category_id INT UNSIGNED NOT NULL,
+  partner_id INT UNSIGNED NULL,
+  txn_type ENUM('credit','debit') NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  txn_date DATE NOT NULL,
+  reference_no VARCHAR(80) NULL,
+  description TEXT NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_txn_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_txn_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+  CONSTRAINT fk_txn_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  CONSTRAINT fk_txn_category FOREIGN KEY (category_id) REFERENCES categories(id),
+  CONSTRAINT fk_txn_partner FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL,
+  CONSTRAINT fk_txn_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_txn_date (txn_date),
+  INDEX idx_txn_company_project (company_id, project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Default admin: admin@saikuber.com / Admin@123
+INSERT INTO users (name, email, password, role) VALUES
+('Admin', 'admin@saikuber.com', '$2y$12$v0ZJnO7EeTm7C9nrkIJYmuKoJL5KCd3s6sEDllOswDyrY2z2N5g22', 'admin');
+
+-- Companies hierarchy
+INSERT INTO companies (id, name, slug, type, parent_id, description) VALUES
+(1, 'Sai Kuber Developers', 'main', 'main', NULL, 'Main company — Sai Kuber Developers'),
+(2, 'Shri Sai Kuber Infra', 'infra', 'sub', 1, 'Sub company — Infrastructure'),
+(3, 'Sai Kuber Construction', 'construction', 'sub', 1, 'Sub company — Construction'),
+(4, 'Shri Sai Kuber Developers', 'developers', 'sub', 1, 'Sub company — Developers');
+
+-- Ledger categories (from whiteboard)
+INSERT INTO categories (section, name, slug, sort_order) VALUES
+-- Credit
+('credit', 'Investment', 'investment', 10),
+('credit', 'Partner', 'partner', 20),
+('credit', 'Booking', 'booking', 30),
+('credit', 'Bank Loan', 'bank_loan', 40),
+('credit', 'Bank Account', 'bank_account', 50),
+-- Land purchase (debit)
+('land_purchase', 'Land Purchase', 'land_purchase', 10),
+('land_purchase', 'Stamp Duty', 'stamp_duty', 20),
+('land_purchase', 'Documentation Charges', 'documentation_charges', 30),
+('land_purchase', 'Commission', 'commission', 40),
+-- Expenses (debit)
+('expense', 'Office Expenses', 'office_expenses', 10),
+('expense', 'Material Purchase', 'material_purchase', 20),
+('expense', 'Electricity, Drainage, Water Line', 'utilities', 30),
+('expense', 'Salary', 'salary', 40),
+('expense', 'Commission', 'commission', 50),
+('expense', 'Labour Charges', 'labour_charges', 60),
+('expense', 'Interest Paid', 'interest_paid', 70),
+-- General topic helpers
+('general', 'Investment', 'investment', 10),
+('general', 'Deposit', 'deposit', 20),
+('general', 'Asset Purchase', 'asset_purchase', 30);
+
+-- Sample projects
+INSERT INTO projects (company_id, name, location, status, start_date) VALUES
+(1, 'Corporate HQ Ops', 'Pune', 'active', CURDATE()),
+(2, 'Infra Phase 1', 'Pune', 'active', CURDATE()),
+(3, 'Residential Block A', 'Pune', 'active', CURDATE()),
+(4, 'Plot Development — West', 'Pune', 'planning', CURDATE());

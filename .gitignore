@@ -1,0 +1,13 @@
+# Local / secrets
+config/database.php
+.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Composer (if added later)
+/vendor/

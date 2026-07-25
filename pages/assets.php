@@ -1,0 +1,134 @@
+<?php
+declare(strict_types=1);
+require __DIR__ . '/../includes/bootstrap.php';
+require_login();
+
+$action = get('action', 'list');
+$id = (int) get('id', 0);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verify_csrf();
+    $postAction = post('action', '');
+    if ($postAction === 'save') {
+        $companyId = (int) post('company_id', 0);
+        $name = post('name', '');
+        $type = post('asset_type', '');
+        $purchaseDate = post('purchase_date') ?: null;
+        $purchaseValue = (float) post('purchase_value', 0);
+        $currentValue = post('current_value') !== '' ? (float) post('current_value') : null;
+        $notes = post('notes', '');
+        $editId = (int) post('id', 0);
+        if (!$companyId || $name === '') {
+            flash('error', 'Company and asset name are required.');
+            redirect('pages/assets.php?action=add');
+        }
+        if ($editId) {
+            $stmt = $pdo->prepare('UPDATE assets SET company_id=?, name=?, asset_type=?, purchase_date=?, purchase_value=?, current_value=?, notes=? WHERE id=?');
+            $stmt->execute([$companyId, $name, $type, $purchaseDate, $purchaseValue, $currentValue, $notes, $editId]);
+            flash('success', 'Asset updated.');
+        } else {
+            $stmt = $pdo->prepare('INSERT INTO assets (company_id, name, asset_type, purchase_date, purchase_value, current_value, notes) VALUES (?,?,?,?,?,?,?)');
+            $stmt->execute([$companyId, $name, $type, $purchaseDate, $purchaseValue, $currentValue, $notes]);
+            flash('success', 'Asset added.');
+        }
+        redirect('pages/assets.php');
+    }
+    if ($postAction === 'delete') {
+        $pdo->prepare('DELETE FROM assets WHERE id = ?')->execute([(int) post('id', 0)]);
+        flash('success', 'Asset deleted.');
+        redirect('pages/assets.php');
+    }
+}
+
+if ($action === 'add' || $action === 'edit') {
+    $row = null;
+    if ($action === 'edit' && $id) {
+        $stmt = $pdo->prepare('SELECT * FROM assets WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+    }
+    $pageTitle = $action === 'edit' ? 'Edit asset' : 'Add asset';
+    $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/assets.php')) . '">Back</a>';
+    require __DIR__ . '/../includes/header.php';
+    ?>
+    <div class="card" style="max-width:720px">
+      <form method="post" class="form-grid">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="save">
+        <input type="hidden" name="id" value="<?= (int)($row['id'] ?? 0) ?>">
+        <div>
+          <label>Company</label>
+          <select name="company_id" required><?= company_options($pdo, (int)($row['company_id'] ?? 0)) ?></select>
+        </div>
+        <div>
+          <label>Asset type</label>
+          <input type="text" name="asset_type" placeholder="Vehicle, Equipment…" value="<?= e($row['asset_type'] ?? '') ?>">
+        </div>
+        <div class="full">
+          <label>Name</label>
+          <input type="text" name="name" required value="<?= e($row['name'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Purchase date</label>
+          <input type="date" name="purchase_date" value="<?= e($row['purchase_date'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Purchase value (₹)</label>
+          <input type="number" step="0.01" name="purchase_value" value="<?= e((string)($row['purchase_value'] ?? '0')) ?>">
+        </div>
+        <div>
+          <label>Current value (₹)</label>
+          <input type="number" step="0.01" name="current_value" value="<?= e((string)($row['current_value'] ?? '')) ?>">
+        </div>
+        <div class="full">
+          <label>Notes</label>
+          <textarea name="notes"><?= e($row['notes'] ?? '') ?></textarea>
+        </div>
+        <div class="full form-actions"><button class="btn btn-primary" type="submit">Save asset</button></div>
+      </form>
+    </div>
+    <?php require __DIR__ . '/../includes/footer.php'; exit;
+}
+
+$pageTitle = 'Assets';
+$pageSub = 'Track company assets and purchase values.';
+$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/assets.php?action=add')) . '">+ Add asset</a>';
+$assets = $pdo->query('SELECT a.*, c.name AS company_name FROM assets a JOIN companies c ON c.id = a.company_id ORDER BY a.created_at DESC')->fetchAll();
+$totalValue = array_sum(array_map(fn($a) => (float)($a['current_value'] ?? $a['purchase_value']), $assets));
+require __DIR__ . '/../includes/header.php';
+?>
+<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+  <div class="stat-card"><div class="stat-label">Total asset value</div><div class="stat-value"><?= money($totalValue) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Assets</div><div class="stat-value"><?= count($assets) ?></div></div>
+</div>
+<div class="card">
+  <?php if (!$assets): ?>
+    <div class="empty"><strong>No assets</strong><p>Register vehicles, equipment and other company assets.</p></div>
+  <?php else: ?>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Name</th><th>Company</th><th>Type</th><th>Purchase date</th><th class="num">Purchase</th><th class="num">Current</th><th class="actions">Actions</th></tr></thead>
+        <tbody>
+          <?php foreach ($assets as $a): ?>
+            <tr>
+              <td><strong><?= e($a['name']) ?></strong></td>
+              <td><?= e($a['company_name']) ?></td>
+              <td><?= e($a['asset_type'] ?? '—') ?></td>
+              <td><?= e($a['purchase_date'] ?? '—') ?></td>
+              <td class="num"><?= money($a['purchase_value']) ?></td>
+              <td class="num"><?= money($a['current_value'] ?? $a['purchase_value']) ?></td>
+              <td class="actions">
+                <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/assets.php?action=edit&id=' . $a['id'])) ?>">Edit</a>
+                <form method="post" style="display:inline" onsubmit="return confirm('Delete asset?')">
+                  <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
+                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
+</div>
+<?php require __DIR__ . '/../includes/footer.php'; ?>

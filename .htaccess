@@ -1,0 +1,11 @@
+# Sai Kuber Developers — Finance ERP
+Options -Indexes
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Prefer HTTPS on Hostinger (optional — uncomment if SSL is active)
+  # RewriteCond %{HTTPS} off
+  # RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# Block sensitive paths
+RedirectMatch 403 (?i)^/(sql|config|includes)/
