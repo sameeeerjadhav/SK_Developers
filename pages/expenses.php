@@ -8,7 +8,7 @@ $pageTitle = 'Expenses';
 $pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
 $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php?type=expenses')) . '">PDF</a><a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
 
-[$from, $to, $month] = period_from_request();
+[$from, $to, $month, $year] = period_from_request();
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.section
         FROM transactions t
@@ -32,7 +32,7 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Entries</div><div class="stat-value"><?= count($rows) ?></div></div>
 </div>
 <form class="filters" method="get">
-  <?= month_filter_fields($month) ?>
+  <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Company</label>
     <select name="company_id" onchange="this.form.submit()">

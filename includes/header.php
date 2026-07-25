@@ -10,6 +10,8 @@ $nav = [
         ['href' => 'index.php', 'label' => 'Dashboard', 'icon' => 'dash', 'match' => ['index.php']],
         ['href' => 'pages/summary.php', 'label' => 'Total Summary', 'icon' => 'summary', 'match' => ['summary.php']],
         ['href' => 'pages/reports.php', 'label' => 'PDF Reports', 'icon' => 'summary', 'match' => ['reports.php']],
+        ['href' => 'pages/notifications.php', 'label' => 'Notifications', 'icon' => 'bell', 'match' => ['notifications.php']],
+        ['href' => 'pages/search.php', 'label' => 'Search', 'icon' => 'search', 'match' => ['search.php']],
     ]],
     ['label' => 'Organisation', 'items' => [
         ['href' => 'pages/companies.php', 'label' => 'Companies', 'icon' => 'company', 'match' => ['companies.php']],
@@ -22,10 +24,13 @@ $nav = [
         ['href' => 'pages/assets.php', 'label' => 'Asset', 'icon' => 'asset', 'match' => ['assets.php']],
         ['href' => 'pages/bank-loans.php', 'label' => 'Bank Loans', 'icon' => 'loan', 'match' => ['bank-loans.php', 'loan-view.php']],
         ['href' => 'pages/bank-accounts.php', 'label' => 'Bank Account', 'icon' => 'bank', 'match' => ['bank-accounts.php', 'bank-account-view.php']],
+        ['href' => 'pages/transfers.php', 'label' => 'Transfers', 'icon' => 'txn', 'match' => ['transfers.php']],
         ['href' => 'pages/deposits.php', 'label' => 'Deposit', 'icon' => 'deposit', 'match' => ['deposits.php']],
     ]],
     ['label' => 'Ledger', 'items' => [
         ['href' => 'pages/transactions.php', 'label' => 'Transactions', 'icon' => 'txn', 'match' => ['transactions.php']],
+        ['href' => 'pages/import.php', 'label' => 'CSV Import', 'icon' => 'import', 'match' => ['import.php']],
+        ['href' => 'pages/audit.php', 'label' => 'Audit log', 'icon' => 'audit', 'match' => ['audit.php']],
     ]],
     ['label' => 'Account', 'items' => array_values(array_filter([
         ['href' => 'pages/profile.php', 'label' => 'Profile', 'icon' => 'partner', 'match' => ['profile.php']],
@@ -48,6 +53,10 @@ function nav_icon(string $name): string
         'bank' => '<path d="M3 10l9-6 9 6M5 10v8h2v-8m4 0v8h2v-8m4 0v8h2v-8M3 20h18"/>',
         'deposit' => '<path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14"/>',
         'txn' => '<path d="M7 7h13M7 7l3-3M7 7l3 3M17 17H4m13 0l-3-3m3 3l-3 3"/>',
+        'bell' => '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9m4.3 13a1.7 1.7 0 0 0 3.4 0"/>',
+        'search' => '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/>',
+        'import' => '<path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14"/>',
+        'audit' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>',
     ];
     $path = $icons[$name] ?? $icons['dash'];
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' . $path . '</svg>';
@@ -102,9 +111,17 @@ function nav_icon(string $name): string
       <div class="topbar-title" title="<?= e($pageTitle ?? 'Dashboard') ?>">
         <?= e($pageTitle ?? 'Dashboard') ?>
       </div>
-      <form class="top-search" action="<?= e(base_url('pages/transactions.php')) ?>" method="get">
+      <?php
+        $noteCount = 0;
+        try { $noteCount = count(system_notifications($pdo)); } catch (Throwable $e) {}
+      ?>
+      <a class="icon-btn" href="<?= e(base_url('pages/notifications.php')) ?>" title="Notifications" aria-label="Notifications" style="position:relative;text-decoration:none">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9m4.3 13a1.7 1.7 0 0 0 3.4 0"/></svg>
+        <?php if ($noteCount > 0): ?><span class="notif-dot"><?= $noteCount > 9 ? '9+' : (int)$noteCount ?></span><?php endif; ?>
+      </a>
+      <form class="top-search" action="<?= e(base_url('pages/search.php')) ?>" method="get">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
-        <input type="search" name="q" placeholder="Search transactions…" value="<?= e(get('q', '')) ?>">
+        <input type="search" name="q" placeholder="Search everywhere…" value="<?= e(($current === 'search.php') ? get('q', '') : '') ?>">
       </form>
       <div class="topbar-right">
         <div class="user-menu" id="userMenu">

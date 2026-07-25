@@ -4,12 +4,11 @@ require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
 $filterCompany = (int) get('company_id', 0);
-[$from, $to, $month] = period_from_request();
+[$from, $to, $month, $year] = period_from_request();
 $pageTitle = 'Total Summary';
-$pageSub = $month
-    ? 'Totals for ' . date('F Y', strtotime($month . '-01')) . '.'
-    : 'Aggregated investment, partner, expense, bank loans, assets, deposits and profit.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/reports.php?type=summary' . ($month ? '&month=' . urlencode($month) : '') . ($filterCompany ? '&company_id=' . $filterCompany : ''))) . '">Print PDF</a>';
+$pageSub = 'Aggregated investment, partner, expense, bank loans, assets, deposits and profit — ' . period_label($from, $to, $month, $year) . '.';
+$reportQs = http_build_query(array_filter(['type' => 'pnl', 'month' => $month ?: null, 'year' => $year ?: null, 'company_id' => $filterCompany ?: null]));
+$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/reports.php?' . $reportQs)) . '">Print PDF</a>';
 
 $overall = summary_totals($pdo, $filterCompany ?: null, $from, $to);
 $companies = $pdo->query('SELECT * FROM companies WHERE status = "active" ORDER BY type ASC, id ASC')->fetchAll();
@@ -18,7 +17,7 @@ require __DIR__ . '/../includes/header.php';
 ?>
 
 <form class="filters" method="get">
-  <?= month_filter_fields($month) ?>
+  <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Scope</label>
     <select name="company_id" onchange="this.form.submit()">

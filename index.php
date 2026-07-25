@@ -3,14 +3,17 @@ declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
 require_login();
 
-[$from, $to, $month] = period_from_request();
+[$from, $to, $month, $year] = period_from_request();
+$setup = setup_progress($pdo);
+$notes = system_notifications($pdo);
 
 $pageTitle = 'Dashboard';
-$pageSub = $month
-    ? 'Overview for ' . date('F Y', strtotime($month . '-01')) . '.'
-    : 'Overview of Sai Kuber Developers and all sub companies.';
+$pageSub = period_label($from, $to, $month, $year) === 'All time'
+    ? 'Overview of Sai Kuber Developers and all sub companies.'
+    : 'Overview for ' . period_label($from, $to, $month, $year) . '.';
+$qs = http_build_query(array_filter(['month' => $month ?: null, 'year' => $year ?: null]));
 $pageActions =
-    '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php' . ($month ? '?month=' . urlencode($month) : ''))) . '">PDF report</a>' .
+    '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php' . ($qs ? '?' . $qs : ''))) . '">PDF report</a>' .
     '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
 
 $totals = summary_totals($pdo, null, $from, $to);
@@ -47,8 +50,44 @@ require __DIR__ . '/includes/header.php';
 ?>
 
 <form class="filters" method="get">
-  <?= month_filter_fields($month) ?>
+  <?= period_filter_fields($month, $year) ?>
 </form>
+
+<?php if (!$setup['complete']): ?>
+<div class="card setup-wizard">
+  <div class="card-head">
+    <h2 class="card-title">Get started</h2>
+    <span class="chip chip-primary"><?= (int)$setup['done'] ?> / <?= (int)$setup['total'] ?></span>
+  </div>
+  <p class="muted" style="margin:0 0 1rem">Add your first bank account, project, and entry to unlock the full dashboard.</p>
+  <ol class="setup-steps">
+    <?php foreach ($setup['steps'] as $step): ?>
+      <li class="<?= $step['done'] ? 'done' : '' ?>">
+        <span class="setup-check"><?= $step['done'] ? '✓' : (array_search($step, $setup['steps'], true) + 1) ?></span>
+        <?php if ($step['done']): ?>
+          <span><?= e($step['label']) ?></span>
+        <?php else: ?>
+          <a href="<?= e(base_url($step['href'])) ?>"><?= e($step['label']) ?> →</a>
+        <?php endif; ?>
+      </li>
+    <?php endforeach; ?>
+  </ol>
+</div>
+<?php endif; ?>
+
+<?php if ($notes): ?>
+<div class="card" style="margin-bottom:1rem">
+  <div class="card-head">
+    <h2 class="card-title">Alerts</h2>
+    <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/notifications.php')) ?>">View all</a>
+  </div>
+  <div style="display:grid;gap:0.5rem">
+    <?php foreach (array_slice($notes, 0, 4) as $n): ?>
+      <a href="<?= e(base_url($n['href'])) ?>" class="muted" style="display:block;color:inherit;font-weight:600;font-size:0.9rem"><?= e($n['title']) ?> — <?= e($n['body']) ?></a>
+    <?php endforeach; ?>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="stat-grid">
   <div class="stat-card">
@@ -82,7 +121,7 @@ require __DIR__ . '/includes/header.php';
         <h3><?= e($co['name']) ?></h3>
         <div class="meta"><?= (int) $item['projects'] ?> projects</div>
         <div class="ledger-total" style="margin-top:0.85rem;border:0;padding:0">
-          <span class="muted">Profit<?= $month ? ' (month)' : '' ?></span>
+          <span class="muted">Profit</span>
           <span class="<?= $s['profit'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($s['profit']) ?></span>
         </div>
       </a>
@@ -94,7 +133,7 @@ require __DIR__ . '/includes/header.php';
   <div class="card">
     <div class="card-head">
       <h2 class="card-title">Recent transactions</h2>
-      <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php' . ($month ? '?month=' . urlencode($month) : ''))) ?>">View all</a>
+      <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php' . ($qs ? '?' . $qs : ''))) ?>">View all</a>
     </div>
     <?php if (!$recent): ?>
       <div class="empty"><strong>No transactions yet</strong><p>Add your first credit or expense entry.</p></div>
@@ -137,14 +176,11 @@ require __DIR__ . '/includes/header.php';
     </div>
     <div class="grid-2" style="gap:0.65rem">
       <a class="btn btn-outline" href="<?= e(base_url('pages/summary.php')) ?>">Total Summary</a>
-      <a class="btn btn-outline" href="<?= e(base_url('pages/reports.php')) ?>">PDF Reports</a>
-      <a class="btn btn-outline" href="<?= e(base_url('pages/bank-accounts.php')) ?>">Bank Accounts</a>
+      <a class="btn btn-outline" href="<?= e(base_url('pages/transfers.php')) ?>">Bank transfer</a>
+      <a class="btn btn-outline" href="<?= e(base_url('pages/import.php')) ?>">CSV import</a>
       <a class="btn btn-outline" href="<?= e(base_url('pages/bank-loans.php')) ?>">Bank Loans / EMI</a>
-      <a class="btn btn-outline" href="<?= e(base_url('pages/investments.php')) ?>">Investments</a>
+      <a class="btn btn-outline" href="<?= e(base_url('pages/audit.php')) ?>">Audit log</a>
       <a class="btn btn-outline" href="<?= e(base_url('pages/expenses.php')) ?>">Expenses</a>
-    </div>
-    <div class="highlight-box" style="margin-top:1rem">
-      Tip: Open a <strong>project</strong> for Credit / Land / Expenses / Profit. Use <strong>month filter</strong> above for period views.
     </div>
   </div>
 </div>

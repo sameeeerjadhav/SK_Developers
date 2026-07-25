@@ -57,13 +57,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $userId = current_user()['id'] ?? null;
         $txnId = $editId;
+        $before = null;
 
         if ($editId) {
+            $beforeStmt = $pdo->prepare('SELECT * FROM transactions WHERE id = ?');
+            $beforeStmt->execute([$editId]);
+            $before = $beforeStmt->fetch() ?: null;
             $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, partner_id=?, txn_type=?, amount=?, txn_date=?, reference_no=?, description=? WHERE id=?');
             $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $partnerId, $txnType, $amount, $txnDate, $reference, $description, $editId]);
+            audit_log($pdo, 'update', 'transaction', $editId, 'Updated txn #' . $editId . ' to ' . money($amount), $before, [
+                'amount' => $amount, 'txn_date' => $txnDate, 'category_id' => $categoryId, 'description' => $description,
+            ]);
             flash('success', 'Transaction updated.');
         } else {
             $txnId = create_transaction($pdo, $companyId, $categoryId, $txnType, $amount, $txnDate, $projectId, $bankAccountId, $partnerId, $reference, $description, $userId ? (int) $userId : null);
+            audit_log($pdo, 'create', 'transaction', $txnId, 'Created ' . $txnType . ' ' . money($amount));
             flash('success', 'Transaction added.');
         }
 
@@ -103,6 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         $pdo->prepare('DELETE FROM transactions WHERE id = ?')->execute([$delId]);
+        audit_log($pdo, 'delete', 'transaction', $delId, 'Deleted transaction #' . $delId);
         if ($partnerId) {
             sync_partner_invested($pdo, (int) $partnerId);
         }
@@ -221,7 +230,7 @@ if ($action === 'add' || $action === 'edit') {
     exit;
 }
 
-[$fromMonth, $toMonth, $month] = period_from_request();
+[$fromMonth, $toMonth, $month, $year] = period_from_request();
 if ($month && $filterFrom === '' && $filterTo === '') {
     $filterFrom = $fromMonth ?: '';
     $filterTo = $toMonth ?: '';
@@ -258,7 +267,7 @@ require __DIR__ . '/../includes/header.php';
 ?>
 
 <form class="filters" method="get">
-  <?= month_filter_fields($month) ?>
+  <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Search</label>
     <input type="search" name="q" value="<?= e($q) ?>" placeholder="Reference, description…">

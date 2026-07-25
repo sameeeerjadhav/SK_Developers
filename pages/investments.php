@@ -4,7 +4,7 @@ require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
 $filterCompany = (int) get('company_id', 0);
-[$from, $to, $month] = period_from_request();
+[$from, $to, $month, $year] = period_from_request();
 $pageTitle = 'Investment';
 $pageSub = 'All investment credits across companies and projects.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=credit&slug=investment')) . '">+ Add investment</a>';
@@ -40,7 +40,7 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </div>
 <form class="filters" method="get">
-  <?= month_filter_fields($month) ?>
+  <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Company</label>
     <select name="company_id" onchange="this.form.submit()">

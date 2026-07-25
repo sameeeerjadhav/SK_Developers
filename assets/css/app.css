@@ -717,6 +717,66 @@ table.data .actions { white-space: nowrap; text-align: right; }
   .topbar-title { font-size: 0.95rem; }
 }
 
+.setup-wizard { margin-bottom: 1rem; animation: fadeUp 0.45s ease both; }
+.setup-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+.setup-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #f7fcfb;
+  font-weight: 600;
+}
+.setup-steps li.done {
+  opacity: 0.65;
+  text-decoration: line-through;
+}
+.setup-check {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--teal-600, #0d9488);
+  color: #fff;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.setup-steps li.done .setup-check { background: #94a3b8; }
+.notif-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.money-in { color: var(--success, #059669); }
+.money-out { color: var(--danger, #dc2626); }
+
+@media (max-width: 900px) {
+  .top-search { max-width: 140px; }
+  .emi-pay-form { justify-content: flex-start !important; }
+}
+
 /* Prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

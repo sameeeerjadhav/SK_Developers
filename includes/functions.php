@@ -96,22 +96,31 @@ function get(string $key, $default = null)
     return isset($_GET[$key]) ? trim((string) $_GET[$key]) : $default;
 }
 
-/** @return array{0:?string,1:?string,2:string} [from, to, monthYm] */
+/** @return array{0:?string,1:?string,2:string,3:string} [from, to, monthYm, year] */
 function period_from_request(): array
 {
     $month = get('month', '');
+    $year = get('year', '');
     if (is_string($month) && preg_match('/^\d{4}-\d{2}$/', $month)) {
         $from = $month . '-01';
         $to = date('Y-m-t', strtotime($from));
-        return [$from, $to, $month];
+        return [$from, $to, $month, substr($month, 0, 4)];
     }
-    return [null, null, ''];
+    if (is_string($year) && preg_match('/^\d{4}$/', $year)) {
+        return [$year . '-01-01', $year . '-12-31', '', $year];
+    }
+    $from = get('from', '');
+    $to = get('to', '');
+    if ($from !== '' || $to !== '') {
+        return [$from !== '' ? $from : null, $to !== '' ? $to : null, '', ''];
+    }
+    return [null, null, '', ''];
 }
 
-function month_filter_fields(string $selectedMonth = '', bool $preserveGets = true): string
+function period_filter_fields(string $selectedMonth = '', string $selectedYear = ''): string
 {
-    $html = '<div class="field"><label>Month</label><select name="month" onchange="this.form.submit()">';
-    $html .= '<option value="">All time</option>';
+    $html = '<div class="field"><label>Month</label><select name="month" onchange="this.form.year.value=\'\';this.form.submit()">';
+    $html .= '<option value="">All months</option>';
     $now = new DateTime('first day of this month');
     for ($i = 0; $i < 36; $i++) {
         $ym = $now->format('Y-m');
@@ -121,7 +130,45 @@ function month_filter_fields(string $selectedMonth = '', bool $preserveGets = tr
         $now->modify('-1 month');
     }
     $html .= '</select></div>';
+
+    $html .= '<div class="field"><label>Year</label><select name="year" onchange="this.form.month.value=\'\';this.form.submit()">';
+    $html .= '<option value="">All years</option>';
+    $yNow = (int) date('Y');
+    for ($y = $yNow; $y >= $yNow - 8; $y--) {
+        $sel = ($selectedYear === (string) $y && $selectedMonth === '') ? ' selected' : '';
+        $html .= '<option value="' . $y . '"' . $sel . '>' . $y . '</option>';
+    }
+    $html .= '</select></div>';
     return $html;
+}
+
+function format_date(?string $date): string
+{
+    if (!$date) {
+        return '—';
+    }
+    $ts = strtotime($date);
+    return $ts ? date('d M Y', $ts) : $date;
+}
+
+function period_label(?string $from, ?string $to, string $month = '', string $year = ''): string
+{
+    if ($month !== '') {
+        return date('F Y', strtotime($month . '-01'));
+    }
+    if ($year !== '') {
+        return 'Year ' . $year;
+    }
+    if ($from || $to) {
+        return ($from ?: '…') . ' → ' . ($to ?: '…');
+    }
+    return 'All time';
+}
+
+/** @deprecated use period_filter_fields */
+function month_filter_fields(string $selectedMonth = '', bool $preserveGets = true): string
+{
+    return period_filter_fields($selectedMonth, '');
 }
 
 function apply_date_range(string &$sql, array &$params, ?string $from, ?string $to, string $column = 't.txn_date'): void
@@ -134,6 +181,94 @@ function apply_date_range(string &$sql, array &$params, ?string $from, ?string $
         $sql .= " AND {$column} <= ?";
         $params[] = $to;
     }
+}
+
+function client_ip(): string
+{
+    return substr((string) ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'), 0, 64);
+}
+
+function audit_log(PDO $pdo, string $action, string $entityType, ?int $entityId, string $summary, $before = null, $after = null): void
+{
+    try {
+        $user = current_user();
+        $stmt = $pdo->prepare('INSERT INTO audit_logs (user_id, user_name, action, entity_type, entity_id, summary, before_json, after_json, ip_address) VALUES (?,?,?,?,?,?,?,?,?)');
+        $stmt->execute([
+            $user['id'] ?? null,
+            $user['name'] ?? null,
+            $action,
+            $entityType,
+            $entityId,
+            substr($summary, 0, 255),
+            $before !== null ? json_encode($before, JSON_UNESCAPED_UNICODE) : null,
+            $after !== null ? json_encode($after, JSON_UNESCAPED_UNICODE) : null,
+            client_ip(),
+        ]);
+    } catch (Throwable $e) {
+        // never break main flow
+    }
+}
+
+function setup_progress(PDO $pdo): array
+{
+    $accounts = (int) $pdo->query('SELECT COUNT(*) FROM bank_accounts')->fetchColumn();
+    $projects = (int) $pdo->query('SELECT COUNT(*) FROM projects')->fetchColumn();
+    $txns = (int) $pdo->query('SELECT COUNT(*) FROM transactions')->fetchColumn();
+    $steps = [
+        ['key' => 'account', 'label' => 'Add a bank account', 'done' => $accounts > 0, 'href' => 'pages/bank-accounts.php?action=add'],
+        ['key' => 'project', 'label' => 'Create a project', 'done' => $projects > 0, 'href' => 'pages/projects.php?action=add'],
+        ['key' => 'txn', 'label' => 'Record first transaction', 'done' => $txns > 0, 'href' => 'pages/transactions.php?action=add'],
+    ];
+    $done = count(array_filter($steps, fn($s) => $s['done']));
+    return ['steps' => $steps, 'done' => $done, 'total' => count($steps), 'complete' => $done === count($steps)];
+}
+
+function system_notifications(PDO $pdo): array
+{
+    $notes = [];
+    try {
+        $due = $pdo->query("SELECT e.*, l.lender_name FROM loan_emis e JOIN bank_loans l ON l.id = e.loan_id WHERE e.status IN ('pending','partial') AND e.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) ORDER BY e.due_date ASC LIMIT 10")->fetchAll();
+        foreach ($due as $row) {
+            $notes[] = [
+                'type' => strtotime($row['due_date']) < strtotime('today') ? 'danger' : 'warning',
+                'title' => 'EMI due — ' . $row['lender_name'],
+                'body' => 'Installment #' . $row['installment_no'] . ' · ' . money($row['amount'] - $row['paid_amount']) . ' · due ' . $row['due_date'],
+                'href' => 'pages/loan-view.php?id=' . $row['loan_id'],
+            ];
+        }
+    } catch (Throwable $e) {
+    }
+
+    try {
+        $deps = $pdo->query("SELECT * FROM deposits WHERE status='active' AND maturity_date IS NOT NULL AND maturity_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) ORDER BY maturity_date ASC LIMIT 8")->fetchAll();
+        foreach ($deps as $d) {
+            $notes[] = [
+                'type' => 'info',
+                'title' => 'Deposit maturing — ' . $d['title'],
+                'body' => money($d['amount']) . ' · maturity ' . $d['maturity_date'],
+                'href' => 'pages/deposits.php?action=edit&id=' . $d['id'],
+            ];
+        }
+    } catch (Throwable $e) {
+    }
+
+    try {
+        $accounts = $pdo->query("SELECT id, account_name, company_id FROM bank_accounts WHERE status='active'")->fetchAll();
+        foreach ($accounts as $acc) {
+            $bal = account_balance($pdo, (int) $acc['id']);
+            if ($bal < 10000) {
+                $notes[] = [
+                    'type' => 'warning',
+                    'title' => 'Low balance — ' . $acc['account_name'],
+                    'body' => 'Live balance ' . money($bal),
+                    'href' => 'pages/bank-account-view.php?id=' . $acc['id'],
+                ];
+            }
+        }
+    } catch (Throwable $e) {
+    }
+
+    return $notes;
 }
 
 function status_chip(string $status): string
@@ -475,10 +610,49 @@ function save_transaction_uploads(PDO $pdo, int $transactionId, array $files, ?i
 function generate_loan_emis(PDO $pdo, int $loanId, float $emiAmount, int $tenureMonths, string $startDate): void
 {
     $pdo->prepare('DELETE FROM loan_emis WHERE loan_id = ? AND status = "pending"')->execute([$loanId]);
+
+    $loanStmt = $pdo->prepare('SELECT loan_amount, interest_rate, outstanding_amount FROM bank_loans WHERE id = ?');
+    $loanStmt->execute([$loanId]);
+    $loan = $loanStmt->fetch() ?: [];
+    $balance = (float) ($loan['outstanding_amount'] ?? $loan['loan_amount'] ?? 0);
+    if ($balance <= 0) {
+        $balance = (float) ($loan['loan_amount'] ?? 0);
+    }
+    $annualRate = (float) ($loan['interest_rate'] ?? 0);
+    $monthlyRate = $annualRate > 0 ? ($annualRate / 12 / 100) : 0.0;
+
+    $existing = $pdo->prepare('SELECT MAX(installment_no) FROM loan_emis WHERE loan_id = ?');
+    $existing->execute([$loanId]);
+    $startNo = (int) $existing->fetchColumn() + 1;
+
     $date = new DateTime($startDate);
-    for ($i = 1; $i <= $tenureMonths; $i++) {
-        $stmt = $pdo->prepare('INSERT INTO loan_emis (loan_id, installment_no, due_date, amount, status) VALUES (?,?,?,?, "pending")');
-        $stmt->execute([$loanId, $i, $date->format('Y-m-d'), $emiAmount]);
+    $remainingTenure = $tenureMonths - ($startNo - 1);
+    if ($remainingTenure < 1) {
+        $remainingTenure = $tenureMonths;
+        $startNo = 1;
+    }
+
+    for ($n = 0; $n < $remainingTenure; $n++) {
+        $installmentNo = $startNo + $n;
+        $interestPart = $monthlyRate > 0 ? round($balance * $monthlyRate, 2) : 0.0;
+        $principalPart = round($emiAmount - $interestPart, 2);
+        if ($principalPart < 0) {
+            $interestPart = $emiAmount;
+            $principalPart = 0.0;
+        }
+        // Last installment: clear remaining principal
+        if ($n === $remainingTenure - 1 || $principalPart > $balance) {
+            $principalPart = round($balance, 2);
+            $emiThis = round($principalPart + $interestPart, 2);
+        } else {
+            $emiThis = $emiAmount;
+        }
+        $stmt = $pdo->prepare(
+            'INSERT INTO loan_emis (loan_id, installment_no, due_date, amount, principal_amount, interest_amount, status)
+             VALUES (?,?,?,?,?,?, "pending")'
+        );
+        $stmt->execute([$loanId, $installmentNo, $date->format('Y-m-d'), $emiThis, $principalPart, $interestPart]);
+        $balance = max(0, round($balance - $principalPart, 2));
         $date->modify('+1 month');
     }
 }
@@ -488,10 +662,16 @@ function refresh_loan_outstanding(PDO $pdo, int $loanId): void
     $loan = $pdo->prepare('SELECT loan_amount FROM bank_loans WHERE id = ?');
     $loan->execute([$loanId]);
     $loanAmount = (float) $loan->fetchColumn();
-    $paid = $pdo->prepare('SELECT COALESCE(SUM(paid_amount),0) FROM loan_emis WHERE loan_id = ?');
+    $paid = $pdo->prepare('SELECT COALESCE(SUM(principal_paid),0) FROM loan_emis WHERE loan_id = ?');
     $paid->execute([$loanId]);
-    $paidTotal = (float) $paid->fetchColumn();
-    $outstanding = max(0, $loanAmount - $paidTotal);
+    $principalPaid = (float) $paid->fetchColumn();
+    // Fallback if older payments have no principal split
+    if ($principalPaid <= 0) {
+        $paid2 = $pdo->prepare('SELECT COALESCE(SUM(paid_amount),0) FROM loan_emis WHERE loan_id = ?');
+        $paid2->execute([$loanId]);
+        $principalPaid = (float) $paid2->fetchColumn();
+    }
+    $outstanding = max(0, $loanAmount - $principalPaid);
     $status = $outstanding <= 0.01 ? 'closed' : 'active';
     $pdo->prepare('UPDATE bank_loans SET outstanding_amount = ?, status = ? WHERE id = ?')
         ->execute([$outstanding, $status, $loanId]);

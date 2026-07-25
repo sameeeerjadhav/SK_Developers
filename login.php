@@ -17,7 +17,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = post('password', '');
     if ($email === '' || $password === '') {
         $error = 'Email and password are required.';
+    } elseif (login_is_rate_limited($pdo, $email)) {
+        $error = 'Too many failed attempts. Try again in 15 minutes.';
     } elseif (attempt_login($pdo, $email, $password)) {
+        if (!empty($_SESSION['must_change_password'])) {
+            redirect('pages/force-password.php');
+        }
         redirect('index.php');
     } else {
         $error = 'Invalid email or password.';
@@ -68,6 +73,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <button class="btn btn-primary" type="submit">Sign in</button>
       </form>
+      <div class="login-hint" style="margin-top:1rem">
+        <a href="<?= e(base_url('forgot-password.php')) ?>">Forgot password?</a>
+      </div>
     </div>
   </section>
 </div>

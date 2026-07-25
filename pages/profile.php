@@ -38,10 +38,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'New password confirmation does not match.';
                 } else {
                     $hash = password_hash($newPass, PASSWORD_DEFAULT);
-                    $upd = $pdo->prepare('UPDATE users SET name = ?, email = ?, password = ? WHERE id = ?');
+                    $upd = $pdo->prepare('UPDATE users SET name = ?, email = ?, password = ?, must_change_password = 0 WHERE id = ?');
                     $upd->execute([$name, $email, $hash, (int) $user['id']]);
                     $_SESSION['user']['name'] = $name;
                     $_SESSION['user']['email'] = $email;
+                    unset($_SESSION['must_change_password']);
+                    audit_log($pdo, 'update', 'user', (int)$user['id'], 'Changed own password');
                     flash('success', 'Profile and password updated.');
                     redirect('pages/profile.php');
                 }

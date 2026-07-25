@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Auto-apply v2 schema pieces if missing (Hostinger-safe).
+ * Auto-apply schema upgrades (Hostinger-safe).
  */
 function ensure_v2_schema(PDO $pdo): void
 {
@@ -21,7 +21,11 @@ function ensure_v2_schema(PDO $pdo): void
           installment_no INT UNSIGNED NOT NULL,
           due_date DATE NOT NULL,
           amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+          principal_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+          interest_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
           paid_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+          principal_paid DECIMAL(14,2) NOT NULL DEFAULT 0,
+          interest_paid DECIMAL(14,2) NOT NULL DEFAULT 0,
           paid_date DATE NULL,
           status ENUM('pending','paid','partial','skipped') NOT NULL DEFAULT 'pending',
           notes TEXT NULL,
@@ -48,20 +52,115 @@ function ensure_v2_schema(PDO $pdo): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
 
-    // Columns on bank_loans
+    try {
+        $pdo->query('SELECT 1 FROM audit_logs LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS audit_logs (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          user_id INT UNSIGNED NULL,
+          user_name VARCHAR(120) NULL,
+          action VARCHAR(40) NOT NULL,
+          entity_type VARCHAR(60) NOT NULL,
+          entity_id INT UNSIGNED NULL,
+          summary VARCHAR(255) NOT NULL,
+          before_json TEXT NULL,
+          after_json TEXT NULL,
+          ip_address VARCHAR(64) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_audit_created (created_at),
+          INDEX idx_audit_entity (entity_type, entity_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    try {
+        $pdo->query('SELECT 1 FROM bank_transfers LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS bank_transfers (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          company_id INT UNSIGNED NOT NULL,
+          from_account_id INT UNSIGNED NOT NULL,
+          to_account_id INT UNSIGNED NOT NULL,
+          amount DECIMAL(14,2) NOT NULL,
+          transfer_date DATE NOT NULL,
+          reference_no VARCHAR(80) NULL,
+          notes TEXT NULL,
+          debit_txn_id INT UNSIGNED NULL,
+          credit_txn_id INT UNSIGNED NULL,
+          created_by INT UNSIGNED NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_transfer_date (transfer_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    try {
+        $pdo->query('SELECT 1 FROM login_attempts LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          email VARCHAR(160) NOT NULL,
+          ip_address VARCHAR(64) NOT NULL,
+          attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_login_email_time (email, attempted_at),
+          INDEX idx_login_ip_time (ip_address, attempted_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    try {
+        $pdo->query('SELECT 1 FROM password_resets LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS password_resets (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          user_id INT UNSIGNED NOT NULL,
+          token_hash VARCHAR(64) NOT NULL,
+          expires_at DATETIME NOT NULL,
+          used_at DATETIME NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_reset_token (token_hash),
+          INDEX idx_reset_user (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
     $cols = $pdo->query("SHOW COLUMNS FROM bank_loans")->fetchAll(PDO::FETCH_COLUMN);
-    if (!in_array('emi_amount', $cols, true)) {
-        $pdo->exec('ALTER TABLE bank_loans ADD COLUMN emi_amount DECIMAL(14,2) NULL AFTER interest_rate');
+    foreach ([
+        'emi_amount' => 'ALTER TABLE bank_loans ADD COLUMN emi_amount DECIMAL(14,2) NULL AFTER interest_rate',
+        'tenure_months' => 'ALTER TABLE bank_loans ADD COLUMN tenure_months INT UNSIGNED NULL AFTER emi_amount',
+        'emi_start_date' => 'ALTER TABLE bank_loans ADD COLUMN emi_start_date DATE NULL AFTER tenure_months',
+    ] as $col => $sql) {
+        if (!in_array($col, $cols, true)) {
+            $pdo->exec($sql);
+        }
     }
-    if (!in_array('tenure_months', $cols, true)) {
-        $pdo->exec('ALTER TABLE bank_loans ADD COLUMN tenure_months INT UNSIGNED NULL AFTER emi_amount');
+
+    $emiCols = [];
+    try {
+        $emiCols = $pdo->query("SHOW COLUMNS FROM loan_emis")->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
     }
-    if (!in_array('emi_start_date', $cols, true)) {
-        $pdo->exec('ALTER TABLE bank_loans ADD COLUMN emi_start_date DATE NULL AFTER tenure_months');
+    if ($emiCols && !in_array('principal_amount', $emiCols, true)) {
+        $pdo->exec('ALTER TABLE loan_emis ADD COLUMN principal_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER amount');
+    }
+    if ($emiCols && !in_array('interest_amount', $emiCols, true)) {
+        $pdo->exec('ALTER TABLE loan_emis ADD COLUMN interest_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER principal_amount');
+    }
+    if ($emiCols && !in_array('principal_paid', $emiCols, true)) {
+        $pdo->exec('ALTER TABLE loan_emis ADD COLUMN principal_paid DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER paid_amount');
+    }
+    if ($emiCols && !in_array('interest_paid', $emiCols, true)) {
+        $pdo->exec('ALTER TABLE loan_emis ADD COLUMN interest_paid DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER principal_paid');
     }
 
     $userCols = $pdo->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('status', $userCols, true)) {
         $pdo->exec("ALTER TABLE users ADD COLUMN status ENUM('active','disabled') NOT NULL DEFAULT 'active' AFTER role");
+    }
+    if (!in_array('must_change_password', $userCols, true)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0 AFTER status");
+    }
+
+    // Ensure transfer category exists
+    $chk = $pdo->prepare("SELECT id FROM categories WHERE section='general' AND slug='bank_transfer' LIMIT 1");
+    $chk->execute();
+    if (!$chk->fetchColumn()) {
+        $pdo->exec("INSERT INTO categories (section, name, slug, sort_order) VALUES ('general', 'Bank Transfer', 'bank_transfer', 40)");
     }
 }
