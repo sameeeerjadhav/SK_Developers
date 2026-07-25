@@ -183,6 +183,12 @@ require __DIR__ . '/../includes/header.php';
               <td class="actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/project-view.php?id=' . $p['id'])) ?>">Open</a>
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/projects.php?action=edit&id=' . $p['id'])) ?>">Edit</a>
+                <form method="post" style="display:inline">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this project? Linked transactions stay but lose the project link.">Delete</button>
+                </form>
               </td>
             </tr>
           <?php endforeach; ?>

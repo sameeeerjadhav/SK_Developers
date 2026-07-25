@@ -117,7 +117,7 @@ function render_ledger_rows(array $rows): void
               <td><?= e($row['txn_date']) ?></td>
               <td><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?></td>
               <td><?= e($row['category_name']) ?></td>
-              <td><?= status_chip($row['txn_type'] === 'credit' ? 'active' : 'on_hold') ?></td>
+              <td><?= txn_type_chip($row['txn_type']) ?></td>
               <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>"><?= money($row['amount']) ?></td>
             </tr>
           <?php endforeach; ?>

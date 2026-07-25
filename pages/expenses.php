@@ -6,7 +6,7 @@ require_login();
 $filterCompany = (int) get('company_id', 0);
 $pageTitle = 'Expenses';
 $pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add expense</a>';
+$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.section
         FROM transactions t

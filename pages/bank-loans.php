@@ -20,6 +20,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $end = post('end_date') ?: null;
         $status = post('status', 'active');
         $notes = post('notes', '');
+        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
         if (!$companyId || $lender === '') {
             flash('error', 'Company and lender name are required.');
@@ -31,8 +33,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('success', 'Bank loan updated.');
         } else {
             $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_rate, start_date, end_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $rate, $start, $end, $status, $notes]);
-            flash('success', 'Bank loan added.');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $rate, $start, $end, $status, $notes]);
+
+            if ($postToLedger && $loanAmount > 0) {
+                $catId = category_id_by_slug($pdo, 'credit', 'bank_loan');
+                if ($catId) {
+                    create_transaction(
+                        $pdo,
+                        $companyId,
+                        $catId,
+                        'credit',
+                        $loanAmount,
+                        $start ?: date('Y-m-d'),
+                        $projectId,
+                        $bankAccountId,
+                        null,
+                        null,
+                        'Bank loan from ' . $lender,
+                        current_user()['id'] ?? null
+                    );
+                }
+            }
+            flash('success', 'Bank loan added' . ($postToLedger ? ' and posted to ledger.' : '.'));
         }
         redirect('pages/bank-loans.php');
     }
@@ -62,7 +84,11 @@ if ($action === 'add' || $action === 'edit') {
         <input type="hidden" name="id" value="<?= (int)($row['id'] ?? 0) ?>">
         <div>
           <label>Company</label>
-          <select name="company_id" required data-company-projects="project_id" data-projects-url="<?= e(base_url('api/projects.php')) ?>">
+          <select name="company_id" required
+            data-company-projects="project_id"
+            data-company-accounts="bank_account_id"
+            data-projects-url="<?= e(base_url('api/projects.php')) ?>"
+            data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
             <?= company_options($pdo, $preCompany) ?>
           </select>
         </div>
@@ -105,6 +131,20 @@ if ($action === 'add' || $action === 'edit') {
           <label>Notes</label>
           <textarea name="notes"><?= e($row['notes'] ?? '') ?></textarea>
         </div>
+        <?php if (!$row): ?>
+        <div>
+          <label>Credit to bank account (optional)</label>
+          <select name="bank_account_id" id="bank_account_id">
+            <?= bank_account_options($pdo, $preCompany ?: null) ?>
+          </select>
+        </div>
+        <div class="full highlight-box">
+          <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0;font-weight:600;color:var(--text)">
+            <input type="checkbox" name="post_to_ledger" value="1" checked style="width:auto;margin-top:0.2rem">
+            <span>Also post loan amount as a <strong>Credit → Bank Loan</strong> transaction (updates project board &amp; bank balance).</span>
+          </label>
+        </div>
+        <?php endif; ?>
         <div class="full form-actions"><button class="btn btn-primary" type="submit">Save loan</button></div>
       </form>
     </div>

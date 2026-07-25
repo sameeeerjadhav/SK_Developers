@@ -139,10 +139,11 @@ require __DIR__ . '/../includes/header.php';
               <td class="num <?= $a['balance'] >= 0 ? 'text-success' : 'text-danger' ?>"><strong><?= money($a['balance']) ?></strong></td>
               <td><?= status_chip($a['status']) ?></td>
               <td class="actions">
+                <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/bank-account-view.php?id=' . $a['id'])) ?>">Statement</a>
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/bank-accounts.php?action=edit&id=' . $a['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" onsubmit="return confirm('Delete account?')">
+                <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete account?">Delete</button>
                 </form>
               </td>
             </tr>

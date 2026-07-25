@@ -19,6 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $rate = post('interest_rate') !== '' ? (float) post('interest_rate') : null;
         $status = post('status', 'active');
         $notes = post('notes', '');
+        $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
         if (!$companyId || $title === '') {
             flash('error', 'Company and title are required.');
@@ -31,7 +32,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $stmt = $pdo->prepare('INSERT INTO deposits (company_id, bank_account_id, title, amount, deposit_date, maturity_date, interest_rate, status, notes) VALUES (?,?,?,?,?,?,?,?,?)');
             $stmt->execute([$companyId, $bankAccountId, $title, $amount, $depositDate, $maturity, $rate, $status, $notes]);
-            flash('success', 'Deposit added.');
+
+            if ($postToLedger && $amount > 0 && $bankAccountId) {
+                $depCat = category_id_by_slug($pdo, 'general', 'deposit');
+                if ($depCat) {
+                    create_transaction(
+                        $pdo,
+                        $companyId,
+                        $depCat,
+                        'debit',
+                        $amount,
+                        $depositDate ?: date('Y-m-d'),
+                        null,
+                        $bankAccountId,
+                        null,
+                        null,
+                        'Deposit placed — ' . $title,
+                        current_user()['id'] ?? null
+                    );
+                }
+            }
+            flash('success', 'Deposit added' . ($postToLedger && $bankAccountId ? ' and bank balance updated.' : '.'));
         }
         redirect('pages/deposits.php');
     }
@@ -61,11 +82,13 @@ if ($action === 'add' || $action === 'edit') {
         <input type="hidden" name="id" value="<?= (int)($row['id'] ?? 0) ?>">
         <div>
           <label>Company</label>
-          <select name="company_id" required><?= company_options($pdo, $preCompany) ?></select>
+          <select name="company_id" required data-company-accounts="bank_account_id" data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
+            <?= company_options($pdo, $preCompany) ?>
+          </select>
         </div>
         <div>
           <label>Linked bank account</label>
-          <select name="bank_account_id"><?= bank_account_options($pdo, $preCompany ?: null, (int)($row['bank_account_id'] ?? 0)) ?></select>
+          <select name="bank_account_id" id="bank_account_id"><?= bank_account_options($pdo, $preCompany ?: null, (int)($row['bank_account_id'] ?? 0)) ?></select>
         </div>
         <div class="full">
           <label>Title</label>
@@ -99,6 +122,14 @@ if ($action === 'add' || $action === 'edit') {
           <label>Notes</label>
           <textarea name="notes"><?= e($row['notes'] ?? '') ?></textarea>
         </div>
+        <?php if (!$row): ?>
+        <div class="full highlight-box">
+          <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0;font-weight:600;color:var(--text)">
+            <input type="checkbox" name="post_to_ledger" value="1" checked style="width:auto;margin-top:0.2rem">
+            <span>Debit linked bank account when placing this deposit (reduces live balance).</span>
+          </label>
+        </div>
+        <?php endif; ?>
         <div class="full form-actions"><button class="btn btn-primary" type="submit">Save deposit</button></div>
       </form>
     </div>

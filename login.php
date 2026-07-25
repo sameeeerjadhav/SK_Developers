@@ -2,6 +2,10 @@
 declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
 
+if (!$pdo) {
+    redirect('install.php');
+}
+
 if (current_user()) {
     redirect('index.php');
 }
@@ -56,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?= csrf_field() ?>
         <div class="field">
           <label for="email">Email</label>
-          <input type="email" id="email" name="email" required value="<?= e(post('email', 'admin@saikuber.com')) ?>">
+          <input type="email" id="email" name="email" required value="<?= e(post('email', '')) ?>" autofocus>
         </div>
         <div class="field">
           <label for="password">Password</label>
@@ -64,7 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <button class="btn btn-primary" type="submit">Sign in</button>
       </form>
-      <div class="login-hint">Default: admin@saikuber.com / Admin@123</div>
     </div>
   </section>
 </div>

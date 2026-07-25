@@ -9,6 +9,16 @@ $q = get('q', '');
 $filterCompany = (int) get('company_id', 0);
 $filterProject = (int) get('project_id', 0);
 $filterType = get('txn_type', '');
+$filterFrom = get('from', '');
+$filterTo = get('to', '');
+$preCategory = (int) get('category_id', 0);
+$preSlug = get('slug', '');
+$preSection = get('section', '');
+
+if ($preCategory <= 0 && $preSlug !== '') {
+    $section = $preSection !== '' ? $preSection : 'credit';
+    $preCategory = (int) (category_id_by_slug($pdo, $section, $preSlug) ?? 0);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
@@ -18,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $companyId = (int) post('company_id', 0);
         $projectId = post('project_id') !== '' ? (int) post('project_id') : null;
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $partnerId = post('partner_id') !== '' ? (int) post('partner_id') : null;
         $categoryId = (int) post('category_id', 0);
         $amount = (float) post('amount', 0);
         $txnDate = post('txn_date', date('Y-m-d'));
@@ -25,30 +36,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = post('description', '');
         $editId = (int) post('id', 0);
 
-        $cat = $pdo->prepare('SELECT section FROM categories WHERE id = ?');
+        $cat = $pdo->prepare('SELECT section, slug FROM categories WHERE id = ?');
         $cat->execute([$categoryId]);
-        $section = $cat->fetchColumn();
-        if (!$section) {
+        $catRow = $cat->fetch();
+        if (!$catRow) {
             flash('error', 'Invalid category.');
             redirect('pages/transactions.php?action=add');
         }
-        $txnType = $section === 'credit' ? 'credit' : 'debit';
+        $txnType = $catRow['section'] === 'credit' ? 'credit' : 'debit';
 
         if (!$companyId || !$categoryId || $amount <= 0) {
             flash('error', 'Company, category and a positive amount are required.');
             redirect('pages/transactions.php?action=add');
         }
 
+        // Only attach partner on partner credits
+        if ($catRow['slug'] !== 'partner') {
+            $partnerId = null;
+        }
+
         $userId = current_user()['id'] ?? null;
 
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, txn_type=?, amount=?, txn_date=?, reference_no=?, description=? WHERE id=?');
-            $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $txnType, $amount, $txnDate, $reference, $description, $editId]);
+            $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, partner_id=?, txn_type=?, amount=?, txn_date=?, reference_no=?, description=? WHERE id=?');
+            $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $partnerId, $txnType, $amount, $txnDate, $reference, $description, $editId]);
             flash('success', 'Transaction updated.');
         } else {
-            $stmt = $pdo->prepare('INSERT INTO transactions (company_id, project_id, bank_account_id, category_id, txn_type, amount, txn_date, reference_no, description, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $txnType, $amount, $txnDate, $reference, $description, $userId]);
+            create_transaction($pdo, $companyId, $categoryId, $txnType, $amount, $txnDate, $projectId, $bankAccountId, $partnerId, $reference, $description, $userId ? (int) $userId : null);
             flash('success', 'Transaction added.');
+        }
+
+        if ($partnerId) {
+            sync_partner_invested($pdo, $partnerId);
         }
 
         if ($projectId) {
@@ -59,8 +78,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($postAction === 'delete') {
         $delId = (int) post('id', 0);
-        $stmt = $pdo->prepare('DELETE FROM transactions WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT partner_id FROM transactions WHERE id = ?');
         $stmt->execute([$delId]);
+        $partnerId = $stmt->fetchColumn();
+        $pdo->prepare('DELETE FROM transactions WHERE id = ?')->execute([$delId]);
+        if ($partnerId) {
+            sync_partner_invested($pdo, (int) $partnerId);
+        }
         flash('success', 'Transaction deleted.');
         redirect('pages/transactions.php');
     }
@@ -80,20 +104,27 @@ if ($action === 'add' || $action === 'edit') {
 
     $preCompany = (int) ($txn['company_id'] ?? $filterCompany ?: 0);
     $preProject = (int) ($txn['project_id'] ?? $filterProject ?: 0);
+    $selectedCategory = (int) ($txn['category_id'] ?? $preCategory ?: 0);
 
     $pageTitle = $action === 'edit' ? 'Edit transaction' : 'Add transaction';
     $pageSub = 'Record credit (in) or debit (land / expense) against a company and project.';
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/transactions.php')) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
-    <div class="card" style="max-width:820px">
+    <div class="card" style="max-width:860px">
       <form method="post" class="form-grid">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="id" value="<?= (int) ($txn['id'] ?? 0) ?>">
         <div>
           <label>Company</label>
-          <select name="company_id" id="company_id" required data-company-projects="project_id" data-projects-url="<?= e(base_url('api/projects.php')) ?>">
+          <select name="company_id" id="company_id" required
+            data-company-projects="project_id"
+            data-company-accounts="bank_account_id"
+            data-company-partners="partner_id"
+            data-projects-url="<?= e(base_url('api/projects.php')) ?>"
+            data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>"
+            data-partners-url="<?= e(base_url('api/partners.php')) ?>">
             <?= company_options($pdo, $preCompany) ?>
           </select>
         </div>
@@ -106,7 +137,7 @@ if ($action === 'add' || $action === 'edit') {
         <div class="full">
           <label>Category</label>
           <select name="category_id" required>
-            <?= category_options($pdo, null, (int) ($txn['category_id'] ?? 0)) ?>
+            <?= category_options($pdo, null, $selectedCategory) ?>
           </select>
         </div>
         <div>
@@ -119,8 +150,14 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <div>
           <label>Bank account (optional)</label>
-          <select name="bank_account_id">
+          <select name="bank_account_id" id="bank_account_id">
             <?= bank_account_options($pdo, $preCompany ?: null, (int) ($txn['bank_account_id'] ?? 0)) ?>
+          </select>
+        </div>
+        <div>
+          <label>Partner (for Partner credits)</label>
+          <select name="partner_id" id="partner_id">
+            <?= partner_options($pdo, $preCompany ?: null, (int) ($txn['partner_id'] ?? 0)) ?>
           </select>
         </div>
         <div>
@@ -132,7 +169,8 @@ if ($action === 'add' || $action === 'edit') {
           <textarea name="description"><?= e($txn['description'] ?? '') ?></textarea>
         </div>
         <div class="full highlight-box">
-          Credit categories increase money in. Land purchase &amp; expense categories are debits. Linking a bank account updates its live balance.
+          Credit categories increase money in. Land purchase &amp; expense categories are debits.
+          Linking a bank account updates its live balance. Partner field syncs partner invested totals.
         </div>
         <div class="full form-actions">
           <button class="btn btn-primary" type="submit">Save transaction</button>
@@ -148,22 +186,25 @@ $pageTitle = 'Transactions';
 $pageSub = 'Full ledger across companies and projects.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
 
-$sql = 'SELECT t.*, c.name AS company_name, cat.name AS category_name, cat.section, p.name AS project_name
+$sql = 'SELECT t.*, c.name AS company_name, cat.name AS category_name, cat.section, p.name AS project_name, pr.name AS partner_name
         FROM transactions t
         JOIN companies c ON c.id = t.company_id
         JOIN categories cat ON cat.id = t.category_id
         LEFT JOIN projects p ON p.id = t.project_id
+        LEFT JOIN partners pr ON pr.id = t.partner_id
         WHERE 1=1';
 $params = [];
 if ($filterCompany) { $sql .= ' AND t.company_id = ?'; $params[] = $filterCompany; }
 if ($filterProject) { $sql .= ' AND t.project_id = ?'; $params[] = $filterProject; }
 if ($filterType !== '') { $sql .= ' AND t.txn_type = ?'; $params[] = $filterType; }
+if ($filterFrom !== '') { $sql .= ' AND t.txn_date >= ?'; $params[] = $filterFrom; }
+if ($filterTo !== '') { $sql .= ' AND t.txn_date <= ?'; $params[] = $filterTo; }
 if ($q !== '') {
     $sql .= ' AND (t.description LIKE ? OR t.reference_no LIKE ? OR cat.name LIKE ? OR c.name LIKE ? OR p.name LIKE ?)';
     $like = '%' . $q . '%';
     array_push($params, $like, $like, $like, $like, $like);
 }
-$sql .= ' ORDER BY t.txn_date DESC, t.id DESC LIMIT 200';
+$sql .= ' ORDER BY t.txn_date DESC, t.id DESC LIMIT 300';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
@@ -185,6 +226,9 @@ require __DIR__ . '/../includes/header.php';
       <?php endforeach; ?>
     </select>
   </div>
+  <?php if ($filterProject): ?>
+    <input type="hidden" name="project_id" value="<?= $filterProject ?>">
+  <?php endif; ?>
   <div class="field">
     <label>Type</label>
     <select name="txn_type">
@@ -192,6 +236,14 @@ require __DIR__ . '/../includes/header.php';
       <option value="credit" <?= $filterType === 'credit' ? 'selected' : '' ?>>Credit</option>
       <option value="debit" <?= $filterType === 'debit' ? 'selected' : '' ?>>Debit</option>
     </select>
+  </div>
+  <div class="field">
+    <label>From</label>
+    <input type="date" name="from" value="<?= e($filterFrom) ?>">
+  </div>
+  <div class="field">
+    <label>To</label>
+    <input type="date" name="to" value="<?= e($filterTo) ?>">
   </div>
   <div class="field" style="flex:0">
     <label>&nbsp;</label>
@@ -221,19 +273,19 @@ require __DIR__ . '/../includes/header.php';
               <td><?= e($row['txn_date']) ?></td>
               <td>
                 <strong><?= e($row['company_name']) ?></strong>
-                <div class="muted" style="font-size:0.75rem"><?= e($row['project_name'] ?? 'No project') ?></div>
+                <div class="muted" style="font-size:0.75rem"><?= e($row['project_name'] ?? 'No project') ?><?= $row['partner_name'] ? ' · ' . e($row['partner_name']) : '' ?></div>
               </td>
               <td>
                 <?= e($row['category_name']) ?>
                 <div class="muted" style="font-size:0.72rem"><?= e(ucwords(str_replace('_',' ',$row['section']))) ?></div>
               </td>
-              <td><?= $row['txn_type'] === 'credit' ? status_chip('active') : status_chip('on_hold') ?></td>
+              <td><?= txn_type_chip($row['txn_type']) ?></td>
               <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
                 <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
               </td>
               <td class="actions">
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" data-confirm="Delete this transaction?">
+                <form method="post" style="display:inline">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="delete">
                   <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">

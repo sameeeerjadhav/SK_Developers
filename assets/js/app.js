@@ -23,7 +23,32 @@
   }
   if (overlay) overlay.addEventListener('click', closeSidebar);
 
-  // Company → project cascade on forms
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function fillSelect(target, rows, emptyLabel) {
+    var html = '<option value="">' + escapeHtml(emptyLabel || 'None') + '</option>';
+    (rows || []).forEach(function (row) {
+      var label = row.label || row.name || '';
+      html += '<option value="' + escapeHtml(row.id) + '">' + escapeHtml(label) + '</option>';
+    });
+    target.innerHTML = html;
+  }
+
+  function loadJson(url) {
+    return fetch(url, { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error('Request failed');
+      return r.json();
+    });
+  }
+
+  // Company → projects cascade
   document.querySelectorAll('[data-company-projects]').forEach(function (select) {
     select.addEventListener('change', function () {
       var targetId = select.getAttribute('data-company-projects');
@@ -31,16 +56,55 @@
       if (!target) return;
       var companyId = select.value;
       var url = select.getAttribute('data-projects-url') || '../api/projects.php';
-      fetch(url + '?company_id=' + encodeURIComponent(companyId))
-        .then(function (r) { return r.json(); })
+      loadJson(url + '?company_id=' + encodeURIComponent(companyId))
         .then(function (rows) {
-          var html = '<option value="">All / none</option>';
-          rows.forEach(function (row) {
-            html += '<option value="' + row.id + '">' + row.name + '</option>';
-          });
-          target.innerHTML = html;
+          fillSelect(target, rows.map(function (r) {
+            return { id: r.id, label: r.name };
+          }), 'All / none');
         })
-        .catch(function () {});
+        .catch(function () {
+          fillSelect(target, [], 'All / none');
+        });
+    });
+  });
+
+  // Company → bank accounts cascade
+  document.querySelectorAll('[data-company-accounts]').forEach(function (select) {
+    select.addEventListener('change', function () {
+      var targetId = select.getAttribute('data-company-accounts');
+      var target = document.getElementById(targetId);
+      if (!target) return;
+      var companyId = select.value;
+      var url = select.getAttribute('data-accounts-url') || '../api/bank-accounts.php';
+      loadJson(url + '?company_id=' + encodeURIComponent(companyId))
+        .then(function (rows) {
+          fillSelect(target, rows.map(function (r) {
+            return { id: r.id, label: (r.account_name || '') + ' — ' + (r.bank_name || '') };
+          }), 'None');
+        })
+        .catch(function () {
+          fillSelect(target, [], 'None');
+        });
+    });
+  });
+
+  // Company → partners cascade
+  document.querySelectorAll('[data-company-partners]').forEach(function (select) {
+    select.addEventListener('change', function () {
+      var targetId = select.getAttribute('data-company-partners');
+      var target = document.getElementById(targetId);
+      if (!target) return;
+      var companyId = select.value;
+      var url = select.getAttribute('data-partners-url') || '../api/partners.php';
+      loadJson(url + '?company_id=' + encodeURIComponent(companyId))
+        .then(function (rows) {
+          fillSelect(target, rows.map(function (r) {
+            return { id: r.id, label: r.name };
+          }), 'None');
+        })
+        .catch(function () {
+          fillSelect(target, [], 'None');
+        });
     });
   });
 

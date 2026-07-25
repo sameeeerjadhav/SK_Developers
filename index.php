@@ -93,6 +93,7 @@ require __DIR__ . '/includes/header.php';
               <th>Date</th>
               <th>Company</th>
               <th>Category</th>
+              <th>Type</th>
               <th class="num">Amount</th>
             </tr>
           </thead>
@@ -104,10 +105,8 @@ require __DIR__ . '/includes/header.php';
                   <div><?= e($row['company_name']) ?></div>
                   <div class="muted" style="font-size:0.75rem"><?= e($row['project_name'] ?? '—') ?></div>
                 </td>
-                <td>
-                  <?= e($row['category_name']) ?>
-                  <div><?= status_chip($row['txn_type'] === 'credit' ? 'active' : 'on_hold') ?></div>
-                </td>
+                <td><?= e($row['category_name']) ?></td>
+                <td><?= txn_type_chip($row['txn_type']) ?></td>
                 <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
                   <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
                 </td>

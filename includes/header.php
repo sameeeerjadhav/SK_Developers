@@ -26,6 +26,9 @@ $nav = [
     ['label' => 'Ledger', 'items' => [
         ['href' => 'pages/transactions.php', 'label' => 'Transactions', 'icon' => 'txn', 'match' => ['transactions.php']],
     ]],
+    ['label' => 'Account', 'items' => [
+        ['href' => 'pages/profile.php', 'label' => 'Profile', 'icon' => 'partner', 'match' => ['profile.php']],
+    ]],
 ];
 
 function nav_icon(string $name): string
@@ -98,13 +101,13 @@ function nav_icon(string $name): string
         <input type="search" name="q" placeholder="Search transactions…" value="<?= e(get('q', '')) ?>">
       </form>
       <div class="topbar-right">
-        <div class="user-pill">
+        <a class="user-pill" href="<?= e(base_url('pages/profile.php')) ?>" title="Profile">
           <div class="avatar"><?= e(strtoupper(substr($user['name'] ?? 'A', 0, 1))) ?></div>
           <div>
             <div class="user-name"><?= e($user['name'] ?? '') ?></div>
             <div class="user-role"><?= e(ucfirst($user['role'] ?? 'admin')) ?></div>
           </div>
-        </div>
+        </a>
       </div>
     </header>
 

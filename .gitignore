@@ -1,5 +1,6 @@
 # Local / secrets
 config/database.php
+config/installed.lock
 .env
 
 # OS / IDE

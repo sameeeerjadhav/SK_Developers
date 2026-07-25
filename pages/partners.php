@@ -17,18 +17,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $share = post('share_percent') !== '' ? (float) post('share_percent') : null;
         $invested = (float) post('invested_amount', 0);
         $notes = post('notes', '');
+        $projectId = post('project_id') !== '' ? (int) post('project_id') : null;
+        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
         if ($name === '') {
             flash('error', 'Partner name is required.');
             redirect('pages/partners.php?action=add');
         }
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE partners SET company_id=?, name=?, phone=?, email=?, share_percent=?, invested_amount=?, notes=? WHERE id=?');
-            $stmt->execute([$companyId, $name, $phone, $email, $share, $invested, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE partners SET company_id=?, name=?, phone=?, email=?, share_percent=?, notes=? WHERE id=?');
+            $stmt->execute([$companyId, $name, $phone, $email, $share, $notes, $editId]);
+            sync_partner_invested($pdo, $editId);
             flash('success', 'Partner updated.');
         } else {
-            $stmt = $pdo->prepare('INSERT INTO partners (company_id, name, phone, email, share_percent, invested_amount, notes) VALUES (?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $name, $phone, $email, $share, $invested, $notes]);
+            $stmt = $pdo->prepare('INSERT INTO partners (company_id, name, phone, email, share_percent, invested_amount, notes) VALUES (?,?,?,?,?,0,?)');
+            $stmt->execute([$companyId, $name, $phone, $email, $share, $notes]);
+            $newId = (int) $pdo->lastInsertId();
+
+            if ($postToLedger && $invested > 0 && $companyId) {
+                $catId = category_id_by_slug($pdo, 'credit', 'partner');
+                if ($catId) {
+                    create_transaction(
+                        $pdo,
+                        $companyId,
+                        $catId,
+                        'credit',
+                        $invested,
+                        date('Y-m-d'),
+                        $projectId,
+                        $bankAccountId,
+                        $newId,
+                        null,
+                        'Partner capital — ' . $name,
+                        current_user()['id'] ?? null
+                    );
+                    sync_partner_invested($pdo, $newId);
+                }
+            } elseif ($invested > 0) {
+                $pdo->prepare('UPDATE partners SET invested_amount = ? WHERE id = ?')->execute([$invested, $newId]);
+            }
             flash('success', 'Partner added.');
         }
         redirect('pages/partners.php');
@@ -59,7 +87,13 @@ if ($action === 'add' || $action === 'edit') {
         <input type="hidden" name="id" value="<?= (int)($row['id'] ?? 0) ?>">
         <div>
           <label>Company</label>
-          <select name="company_id"><?= company_options($pdo, (int)($row['company_id'] ?? 0)) ?></select>
+          <select name="company_id"
+            data-company-projects="project_id"
+            data-company-accounts="bank_account_id"
+            data-projects-url="<?= e(base_url('api/projects.php')) ?>"
+            data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
+            <?= company_options($pdo, (int)($row['company_id'] ?? 0)) ?>
+          </select>
         </div>
         <div>
           <label>Share %</label>
@@ -79,8 +113,25 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <div>
           <label>Invested amount (₹)</label>
-          <input type="number" step="0.01" name="invested_amount" value="<?= e((string)($row['invested_amount'] ?? '0')) ?>">
+          <input type="number" step="0.01" name="invested_amount" value="<?= e((string)($row['invested_amount'] ?? '0')) ?>" <?= $row ? 'readonly' : '' ?>>
+          <?php if ($row): ?><p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">Synced from Partner credit transactions.</p><?php endif; ?>
         </div>
+        <?php if (!$row): ?>
+        <div>
+          <label>Project (optional)</label>
+          <select name="project_id" id="project_id"><?= project_options($pdo, (int)($row['company_id'] ?? 0) ?: null) ?></select>
+        </div>
+        <div>
+          <label>Bank account (optional)</label>
+          <select name="bank_account_id" id="bank_account_id"><?= bank_account_options($pdo, (int)($row['company_id'] ?? 0) ?: null) ?></select>
+        </div>
+        <div class="full highlight-box">
+          <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0;font-weight:600;color:var(--text)">
+            <input type="checkbox" name="post_to_ledger" value="1" checked style="width:auto;margin-top:0.2rem">
+            <span>Post invested amount as <strong>Credit → Partner</strong> transaction.</span>
+          </label>
+        </div>
+        <?php endif; ?>
         <div class="full">
           <label>Notes</label>
           <textarea name="notes"><?= e($row['notes'] ?? '') ?></textarea>

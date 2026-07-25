@@ -6,7 +6,7 @@ require_login();
 $filterCompany = (int) get('company_id', 0);
 $pageTitle = 'Investment';
 $pageSub = 'All investment credits across companies and projects.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add investment</a>';
+$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=credit&slug=investment')) . '">+ Add investment</a>';
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name
         FROM transactions t

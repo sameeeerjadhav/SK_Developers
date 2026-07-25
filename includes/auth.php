@@ -21,6 +21,9 @@ function attempt_login(PDO $pdo, string $email, string $password): bool
     if (!$user || !password_verify($password, $user['password'])) {
         return false;
     }
+
+    session_regenerate_id(true);
+
     $_SESSION['user'] = [
         'id'    => (int) $user['id'],
         'name'  => $user['name'],
@@ -35,7 +38,17 @@ function logout_user(): void
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $p = session_get_cookie_params();
-        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+        setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'] ?? '', (bool) ($p['secure'] ?? false), (bool) ($p['httponly'] ?? true));
     }
     session_destroy();
+}
+
+function require_admin(): void
+{
+    require_login();
+    $user = current_user();
+    if (($user['role'] ?? '') !== 'admin') {
+        flash('error', 'Admin access required.');
+        redirect('index.php');
+    }
 }

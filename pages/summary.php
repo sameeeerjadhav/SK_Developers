@@ -5,7 +5,7 @@ require_login();
 
 $filterCompany = (int) get('company_id', 0);
 $pageTitle = 'Total Summary';
-$pageSub = 'Aggregated investment, partner, expense, bank loans and profit.';
+$pageSub = 'Aggregated investment, partner, expense, bank loans, assets, deposits and profit.';
 
 $overall = summary_totals($pdo, $filterCompany ?: null);
 $companies = $pdo->query('SELECT * FROM companies WHERE status = "active" ORDER BY type ASC, id ASC')->fetchAll();
@@ -25,7 +25,7 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </form>
 
-<div class="stat-grid">
+<div class="stat-grid dense">
   <div class="stat-card">
     <div class="stat-label">Investment</div>
     <div class="stat-value"><?= money($overall['investment']) ?></div>
@@ -35,12 +35,28 @@ require __DIR__ . '/../includes/header.php';
     <div class="stat-value"><?= money($overall['partner']) ?></div>
   </div>
   <div class="stat-card">
+    <div class="stat-label">Booking</div>
+    <div class="stat-value"><?= money($overall['booking']) ?></div>
+  </div>
+  <div class="stat-card">
     <div class="stat-label">Expense</div>
     <div class="stat-value"><?= money($overall['expense']) ?></div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Bank Loans</div>
+    <div class="stat-label">Bank Loans (outstanding)</div>
     <div class="stat-value"><?= money($overall['bank_loans']) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Bank Balance</div>
+    <div class="stat-value"><?= money($overall['bank_balance']) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Assets</div>
+    <div class="stat-value"><?= money($overall['assets']) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Deposits</div>
+    <div class="stat-value"><?= money($overall['deposits']) ?></div>
   </div>
 </div>
 
@@ -66,7 +82,8 @@ require __DIR__ . '/../includes/header.php';
           <th class="num">Investment</th>
           <th class="num">Partner</th>
           <th class="num">Expense</th>
-          <th class="num">Bank Loans</th>
+          <th class="num">Loans</th>
+          <th class="num">Bank bal.</th>
           <th class="num">Profit</th>
         </tr>
       </thead>
@@ -83,6 +100,7 @@ require __DIR__ . '/../includes/header.php';
             <td class="num"><?= money($s['partner']) ?></td>
             <td class="num"><?= money($s['expense']) ?></td>
             <td class="num"><?= money($s['bank_loans']) ?></td>
+            <td class="num"><?= money($s['bank_balance']) ?></td>
             <td class="num <?= $s['profit'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($s['profit']) ?></td>
           </tr>
         <?php endforeach; ?>
