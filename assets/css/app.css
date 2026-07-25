@@ -22,8 +22,8 @@
   --shadow-md: 0 8px 24px rgba(11, 31, 28, 0.06);
   --shadow-lg: 0 20px 50px rgba(11, 31, 28, 0.1);
 
-  --radius: 16px;
-  --radius-sm: 12px;
+  --radius: 22px;
+  --radius-sm: 16px;
   --sidebar-w: 260px;
 
   --font: "Plus Jakarta Sans", system-ui, sans-serif;
@@ -214,7 +214,7 @@ body.sidebar-open { overflow: hidden; }
   min-width: 180px;
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 18px;
   padding: 0.35rem;
   box-shadow: var(--shadow-md);
   z-index: 50;
@@ -338,7 +338,7 @@ body.sidebar-open { overflow: hidden; }
 
 .btn, button.btn, a.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
-  border: 0; border-radius: 12px; padding: 0.6rem 1.05rem;
+  border: 0; border-radius: 14px; padding: 0.6rem 1.05rem;
   font-family: inherit; font-size: 0.875rem; font-weight: 700;
   cursor: pointer; text-decoration: none;
   transition: transform 0.12s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
@@ -356,7 +356,7 @@ body.sidebar-open { overflow: hidden; }
 .btn-outline:hover { background: var(--primary-ghost); color: var(--primary-dark); border-color: #9fd5cd; }
 .btn-danger { background: #fee2e2; color: var(--danger); }
 .btn-danger:hover { background: #fecaca; color: #991b1b; }
-.btn-sm { padding: 0.4rem 0.75rem; border-radius: 10px; font-size: 0.8rem; }
+.btn-sm { padding: 0.4rem 0.75rem; border-radius: 12px; font-size: 0.8rem; }
 
 .form-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
@@ -370,7 +370,7 @@ input[type="text"], input[type="email"], input[type="password"], input[type="num
 input[type="date"], input[type="search"], select, textarea {
   width: 100%;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 0.65rem 0.8rem;
   font: inherit; font-size: 0.9rem; color: var(--text);
   background: #fff;
@@ -387,7 +387,7 @@ input:focus, select:focus, textarea:focus {
 }
 .highlight-box {
   background: #f0fdf4; border: 1px solid #86efac;
-  border-radius: 12px; padding: 0.85rem 1rem;
+  border-radius: 16px; padding: 0.85rem 1rem;
 }
 
 table.data {
@@ -435,7 +435,7 @@ table.data .actions { white-space: nowrap; text-align: right; }
 }
 
 .alert {
-  border-radius: 14px; padding: 0.85rem 1rem;
+  border-radius: 16px; padding: 0.85rem 1rem;
   font-weight: 700; font-size: 0.9rem; margin-bottom: 1rem;
 }
 .alert-success { background: #d1fae5; border: 1px solid #6ee7b7; color: #047857; }
@@ -444,7 +444,7 @@ table.data .actions { white-space: nowrap; text-align: right; }
 
 .empty {
   text-align: center; padding: 2.2rem 1rem;
-  background: #f3faf8; border-radius: 14px; color: var(--primary-dark);
+  background: #f3faf8; border-radius: 18px; color: var(--primary-dark);
 }
 .empty p { margin: 0.4rem 0 0; color: var(--muted); font-weight: 500; }
 
@@ -486,7 +486,7 @@ table.data .actions { white-space: nowrap; text-align: right; }
 }
 .profit-row {
   background: linear-gradient(90deg, var(--primary-soft), #fff);
-  border: 1px solid #99e6d8; border-radius: 12px;
+  border: 1px solid #99e6d8; border-radius: 16px;
   padding: 0.9rem 1rem; margin-top: 1rem;
   display: flex; justify-content: space-between; align-items: center;
   font-weight: 800;
@@ -563,7 +563,7 @@ table.data .actions { white-space: nowrap; text-align: right; }
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 22px; padding: 1.8rem;
+  border-radius: 26px; padding: 1.8rem;
   box-shadow: var(--shadow-lg);
   animation: fadeUp 0.6s var(--ease) both;
 }
@@ -655,7 +655,7 @@ table.data .actions { white-space: nowrap; text-align: right; }
   .login-panel-wrap { padding: 0.75rem 1.15rem 2rem; align-items: flex-start; }
   .login-brand { font-size: clamp(2.2rem, 10vw, 3.2rem); }
   .filters .field { min-width: 100%; flex: 1 1 100%; }
-  .card { padding: 1.05rem; border-radius: 14px; }
+  .card { padding: 1.05rem; }
   .card[style*="max-width"] { max-width: 100% !important; }
   .profit-row {
     flex-direction: column;
