@@ -6,10 +6,40 @@ function current_user(): ?array
     return $_SESSION['user'] ?? null;
 }
 
+function is_admin(): bool
+{
+    return (current_user()['role'] ?? '') === 'admin';
+}
+
+function is_staff(): bool
+{
+    return (current_user()['role'] ?? '') === 'staff';
+}
+
+/** Staff can view/add/edit; only admin can delete critical records or manage users */
+function can_delete(): bool
+{
+    return is_admin();
+}
+
+function can_manage_users(): bool
+{
+    return is_admin();
+}
+
 function require_login(): void
 {
     if (!current_user()) {
         redirect('login.php');
+    }
+}
+
+function require_admin(): void
+{
+    require_login();
+    if (!is_admin()) {
+        flash('error', 'Admin access required.');
+        redirect('index.php');
     }
 }
 
@@ -19,6 +49,9 @@ function attempt_login(PDO $pdo, string $email, string $password): bool
     $stmt->execute([$email]);
     $user = $stmt->fetch();
     if (!$user || !password_verify($password, $user['password'])) {
+        return false;
+    }
+    if (($user['status'] ?? 'active') === 'disabled') {
         return false;
     }
 
@@ -41,14 +74,4 @@ function logout_user(): void
         setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'] ?? '', (bool) ($p['secure'] ?? false), (bool) ($p['httponly'] ?? true));
     }
     session_destroy();
-}
-
-function require_admin(): void
-{
-    require_login();
-    $user = current_user();
-    if (($user['role'] ?? '') !== 'admin') {
-        flash('error', 'Admin access required.');
-        redirect('index.php');
-    }
 }

@@ -39,6 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($postAction === 'delete') {
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete companies.');
+            redirect('pages/companies.php');
+        }
         $delId = (int) post('id', 0);
         $stmt = $pdo->prepare('DELETE FROM companies WHERE id = ? AND type = "sub"');
         $stmt->execute([$delId]);
@@ -161,7 +165,7 @@ require __DIR__ . '/../includes/header.php';
             <td><?= status_chip($co['status']) ?></td>
             <td class="actions">
               <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/companies.php?action=edit&id=' . $co['id'])) ?>">Edit</a>
-              <?php if ($co['type'] === 'sub'): ?>
+              <?php if ($co['type'] === 'sub' && can_delete()): ?>
                 <form method="post" style="display:inline" onsubmit="return confirm('Delete this sub company?')">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="delete">

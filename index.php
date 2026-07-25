@@ -3,28 +3,37 @@ declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
 require_login();
 
-$pageTitle = 'Dashboard';
-$pageSub = 'Overview of Sai Kuber Developers and all sub companies.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
+[$from, $to, $month] = period_from_request();
 
-$totals = summary_totals($pdo);
+$pageTitle = 'Dashboard';
+$pageSub = $month
+    ? 'Overview for ' . date('F Y', strtotime($month . '-01')) . '.'
+    : 'Overview of Sai Kuber Developers and all sub companies.';
+$pageActions =
+    '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php' . ($month ? '?month=' . urlencode($month) : ''))) . '">PDF report</a>' .
+    '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
+
+$totals = summary_totals($pdo, null, $from, $to);
 $companies = $pdo->query('SELECT * FROM companies WHERE status = "active" ORDER BY type ASC, id ASC')->fetchAll();
 $projectCount = (int) $pdo->query('SELECT COUNT(*) FROM projects')->fetchColumn();
 $accountCount = (int) $pdo->query('SELECT COUNT(*) FROM bank_accounts WHERE status = "active"')->fetchColumn();
 
-$recent = $pdo->query(
-    'SELECT t.*, c.name AS company_name, cat.name AS category_name, p.name AS project_name
+$recentSql = 'SELECT t.*, c.name AS company_name, cat.name AS category_name, p.name AS project_name
      FROM transactions t
      JOIN companies c ON c.id = t.company_id
      JOIN categories cat ON cat.id = t.category_id
      LEFT JOIN projects p ON p.id = t.project_id
-     ORDER BY t.txn_date DESC, t.id DESC
-     LIMIT 8'
-)->fetchAll();
+     WHERE 1=1';
+$recentParams = [];
+apply_date_range($recentSql, $recentParams, $from, $to);
+$recentSql .= ' ORDER BY t.txn_date DESC, t.id DESC LIMIT 8';
+$recentStmt = $pdo->prepare($recentSql);
+$recentStmt->execute($recentParams);
+$recent = $recentStmt->fetchAll();
 
 $companyCards = [];
 foreach ($companies as $co) {
-    $s = summary_totals($pdo, (int) $co['id']);
+    $s = summary_totals($pdo, (int) $co['id'], $from, $to);
     $pc = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE company_id = ?');
     $pc->execute([(int) $co['id']]);
     $companyCards[] = [
@@ -36,6 +45,10 @@ foreach ($companies as $co) {
 
 require __DIR__ . '/includes/header.php';
 ?>
+
+<form class="filters" method="get">
+  <?= month_filter_fields($month) ?>
+</form>
 
 <div class="stat-grid">
   <div class="stat-card">
@@ -69,7 +82,7 @@ require __DIR__ . '/includes/header.php';
         <h3><?= e($co['name']) ?></h3>
         <div class="meta"><?= (int) $item['projects'] ?> projects</div>
         <div class="ledger-total" style="margin-top:0.85rem;border:0;padding:0">
-          <span class="muted">Profit</span>
+          <span class="muted">Profit<?= $month ? ' (month)' : '' ?></span>
           <span class="<?= $s['profit'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($s['profit']) ?></span>
         </div>
       </a>
@@ -81,7 +94,7 @@ require __DIR__ . '/includes/header.php';
   <div class="card">
     <div class="card-head">
       <h2 class="card-title">Recent transactions</h2>
-      <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php')) ?>">View all</a>
+      <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php' . ($month ? '?month=' . urlencode($month) : ''))) ?>">View all</a>
     </div>
     <?php if (!$recent): ?>
       <div class="empty"><strong>No transactions yet</strong><p>Add your first credit or expense entry.</p></div>
@@ -124,14 +137,14 @@ require __DIR__ . '/includes/header.php';
     </div>
     <div class="grid-2" style="gap:0.65rem">
       <a class="btn btn-outline" href="<?= e(base_url('pages/summary.php')) ?>">Total Summary</a>
+      <a class="btn btn-outline" href="<?= e(base_url('pages/reports.php')) ?>">PDF Reports</a>
       <a class="btn btn-outline" href="<?= e(base_url('pages/bank-accounts.php')) ?>">Bank Accounts</a>
+      <a class="btn btn-outline" href="<?= e(base_url('pages/bank-loans.php')) ?>">Bank Loans / EMI</a>
       <a class="btn btn-outline" href="<?= e(base_url('pages/investments.php')) ?>">Investments</a>
       <a class="btn btn-outline" href="<?= e(base_url('pages/expenses.php')) ?>">Expenses</a>
-      <a class="btn btn-outline" href="<?= e(base_url('pages/partners.php')) ?>">Partners</a>
-      <a class="btn btn-outline" href="<?= e(base_url('pages/bank-loans.php')) ?>">Bank Loans</a>
     </div>
     <div class="highlight-box" style="margin-top:1rem">
-      Tip: Open a <strong>project</strong> to see Credit, Land Purchase, Expenses and Profit exactly like your whiteboard layout.
+      Tip: Open a <strong>project</strong> for Credit / Land / Expenses / Profit. Use <strong>month filter</strong> above for period views.
     </div>
   </div>
 </div>

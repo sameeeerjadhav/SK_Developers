@@ -23,6 +23,7 @@ CREATE TABLE users (
   email VARCHAR(160) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
   role ENUM('admin','staff') NOT NULL DEFAULT 'admin',
+  status ENUM('active','disabled') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -108,6 +109,9 @@ CREATE TABLE bank_loans (
   loan_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   outstanding_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   interest_rate DECIMAL(6,2) NULL,
+  emi_amount DECIMAL(14,2) NULL,
+  tenure_months INT UNSIGNED NULL,
+  emi_start_date DATE NULL,
   start_date DATE NULL,
   end_date DATE NULL,
   status ENUM('active','closed') NOT NULL DEFAULT 'active',
@@ -155,6 +159,38 @@ CREATE TABLE transactions (
   CONSTRAINT fk_txn_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_txn_date (txn_date),
   INDEX idx_txn_company_project (company_id, project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE loan_emis (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  loan_id INT UNSIGNED NOT NULL,
+  installment_no INT UNSIGNED NOT NULL,
+  due_date DATE NOT NULL,
+  amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  paid_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  paid_date DATE NULL,
+  status ENUM('pending','paid','partial','skipped') NOT NULL DEFAULT 'pending',
+  notes TEXT NULL,
+  transaction_id INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_emis_loan FOREIGN KEY (loan_id) REFERENCES bank_loans(id) ON DELETE CASCADE,
+  CONSTRAINT fk_emis_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_loan_installment (loan_id, installment_no),
+  INDEX idx_emi_due (due_date, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE attachments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  transaction_id INT UNSIGNED NOT NULL,
+  original_name VARCHAR(255) NOT NULL,
+  stored_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(120) NULL,
+  size_bytes INT UNSIGNED NOT NULL DEFAULT 0,
+  uploaded_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_att_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_att_user FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_att_txn (transaction_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Default admin: admin@saikuber.com / Admin@123

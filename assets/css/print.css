@@ -1,0 +1,29 @@
+@media print {
+  body { background: #fff !important; }
+  .sidebar, .topbar, .sidebar-overlay, .no-print, .page-actions, .filters, .nav, .brand { display: none !important; }
+  .main { margin: 0 !important; }
+  .content { padding: 0 !important; animation: none !important; }
+  .page-head { display: none !important; }
+  .card, .stat-card, .report-sheet {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  .stat-card:hover { transform: none !important; }
+  a { color: inherit !important; text-decoration: none !important; }
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.report-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.6;
+  text-align: right;
+}
+.print-report .content, .print-report { padding: 1.5rem; }

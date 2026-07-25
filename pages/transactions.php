@@ -56,14 +56,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $userId = current_user()['id'] ?? null;
+        $txnId = $editId;
 
         if ($editId) {
             $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, partner_id=?, txn_type=?, amount=?, txn_date=?, reference_no=?, description=? WHERE id=?');
             $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $partnerId, $txnType, $amount, $txnDate, $reference, $description, $editId]);
             flash('success', 'Transaction updated.');
         } else {
-            create_transaction($pdo, $companyId, $categoryId, $txnType, $amount, $txnDate, $projectId, $bankAccountId, $partnerId, $reference, $description, $userId ? (int) $userId : null);
+            $txnId = create_transaction($pdo, $companyId, $categoryId, $txnType, $amount, $txnDate, $projectId, $bankAccountId, $partnerId, $reference, $description, $userId ? (int) $userId : null);
             flash('success', 'Transaction added.');
+        }
+
+        if (!empty($_FILES['attachments']) && $txnId) {
+            $uploaded = save_transaction_uploads($pdo, (int) $txnId, $_FILES['attachments'], $userId ? (int) $userId : null);
+            if ($uploaded > 0) {
+                flash('success', ($editId ? 'Transaction updated' : 'Transaction added') . " with {$uploaded} attachment(s).");
+            }
         }
 
         if ($partnerId) {
@@ -77,10 +85,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($postAction === 'delete') {
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete transactions.');
+            redirect('pages/transactions.php');
+        }
         $delId = (int) post('id', 0);
         $stmt = $pdo->prepare('SELECT partner_id FROM transactions WHERE id = ?');
         $stmt->execute([$delId]);
         $partnerId = $stmt->fetchColumn();
+        // remove files
+        $atts = $pdo->prepare('SELECT stored_name FROM attachments WHERE transaction_id = ?');
+        $atts->execute([$delId]);
+        foreach ($atts->fetchAll() as $att) {
+            $path = uploads_dir() . '/' . $att['stored_name'];
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
         $pdo->prepare('DELETE FROM transactions WHERE id = ?')->execute([$delId]);
         if ($partnerId) {
             sync_partner_invested($pdo, (int) $partnerId);
@@ -112,7 +133,7 @@ if ($action === 'add' || $action === 'edit') {
     require __DIR__ . '/../includes/header.php';
     ?>
     <div class="card" style="max-width:860px">
-      <form method="post" class="form-grid">
+      <form method="post" class="form-grid" enctype="multipart/form-data">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="id" value="<?= (int) ($txn['id'] ?? 0) ?>">
@@ -168,6 +189,24 @@ if ($action === 'add' || $action === 'edit') {
           <label>Description</label>
           <textarea name="description"><?= e($txn['description'] ?? '') ?></textarea>
         </div>
+        <div class="full">
+          <label>Attachments (PDF / images, max 5MB each)</label>
+          <input type="file" name="attachments[]" accept=".pdf,image/*" multiple>
+          <?php
+          if (!empty($txn['id'])) {
+              $attStmt = $pdo->prepare('SELECT * FROM attachments WHERE transaction_id = ? ORDER BY id');
+              $attStmt->execute([(int)$txn['id']]);
+              $existingAtts = $attStmt->fetchAll();
+              if ($existingAtts) {
+                  echo '<div style="margin-top:0.65rem;display:flex;flex-wrap:wrap;gap:0.45rem">';
+                  foreach ($existingAtts as $att) {
+                      echo '<a class="chip chip-primary" href="' . e(base_url('pages/attachment.php?id=' . $att['id'])) . '" target="_blank">' . e($att['original_name']) . '</a>';
+                  }
+                  echo '</div>';
+              }
+          }
+          ?>
+        </div>
         <div class="full highlight-box">
           Credit categories increase money in. Land purchase &amp; expense categories are debits.
           Linking a bank account updates its live balance. Partner field syncs partner invested totals.
@@ -180,6 +219,12 @@ if ($action === 'add' || $action === 'edit') {
     <?php
     require __DIR__ . '/../includes/footer.php';
     exit;
+}
+
+[$fromMonth, $toMonth, $month] = period_from_request();
+if ($month && $filterFrom === '' && $filterTo === '') {
+    $filterFrom = $fromMonth ?: '';
+    $filterTo = $toMonth ?: '';
 }
 
 $pageTitle = 'Transactions';
@@ -213,6 +258,7 @@ require __DIR__ . '/../includes/header.php';
 ?>
 
 <form class="filters" method="get">
+  <?= month_filter_fields($month) ?>
   <div class="field">
     <label>Search</label>
     <input type="search" name="q" value="<?= e($q) ?>" placeholder="Reference, description…">
@@ -285,12 +331,14 @@ require __DIR__ . '/../includes/header.php';
               </td>
               <td class="actions">
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
+                <?php if (can_delete()): ?>
                 <form method="post" style="display:inline">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="delete">
                   <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
                   <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this transaction?">Delete</button>
                 </form>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

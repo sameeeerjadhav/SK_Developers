@@ -22,18 +22,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notes = post('notes', '');
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $postToLedger = !empty($_POST['post_to_ledger']);
+        $emiAmount = post('emi_amount') !== '' ? (float) post('emi_amount') : null;
+        $tenureMonths = post('tenure_months') !== '' ? (int) post('tenure_months') : null;
+        $emiStart = post('emi_start_date') ?: null;
         $editId = (int) post('id', 0);
         if (!$companyId || $lender === '') {
             flash('error', 'Company and lender name are required.');
             redirect('pages/bank-loans.php?action=add');
         }
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_rate=?, start_date=?, end_date=?, status=?, notes=? WHERE id=?');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $rate, $start, $end, $status, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_rate=?, emi_amount=?, tenure_months=?, emi_start_date=?, start_date=?, end_date=?, status=?, notes=? WHERE id=?');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $rate, $emiAmount, $tenureMonths, $emiStart, $start, $end, $status, $notes, $editId]);
             flash('success', 'Bank loan updated.');
+            redirect('pages/loan-view.php?id=' . $editId);
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_rate, start_date, end_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $rate, $start, $end, $status, $notes]);
+            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_rate, emi_amount, tenure_months, emi_start_date, start_date, end_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $rate, $emiAmount, $tenureMonths, $emiStart, $start, $end, $status, $notes]);
+            $newLoanId = (int) $pdo->lastInsertId();
 
             if ($postToLedger && $loanAmount > 0) {
                 $catId = category_id_by_slug($pdo, 'credit', 'bank_loan');
@@ -54,11 +59,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     );
                 }
             }
-            flash('success', 'Bank loan added' . ($postToLedger ? ' and posted to ledger.' : '.'));
+            if ($emiAmount && $tenureMonths && $tenureMonths > 0) {
+                generate_loan_emis($pdo, $newLoanId, $emiAmount, $tenureMonths, $emiStart ?: ($start ?: date('Y-m-d')));
+            }
+            flash('success', 'Bank loan added' . ($postToLedger ? ' and posted to ledger.' : '.') . ($emiAmount ? ' EMI schedule created.' : ''));
+            redirect('pages/loan-view.php?id=' . $newLoanId);
         }
         redirect('pages/bank-loans.php');
     }
     if ($postAction === 'delete') {
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete loans.');
+            redirect('pages/bank-loans.php');
+        }
         $pdo->prepare('DELETE FROM bank_loans WHERE id = ?')->execute([(int) post('id', 0)]);
         flash('success', 'Bank loan deleted.');
         redirect('pages/bank-loans.php');
@@ -111,6 +124,18 @@ if ($action === 'add' || $action === 'edit') {
         <div>
           <label>Interest rate %</label>
           <input type="number" step="0.01" name="interest_rate" value="<?= e((string)($row['interest_rate'] ?? '')) ?>">
+        </div>
+        <div>
+          <label>EMI amount (₹)</label>
+          <input type="number" step="0.01" name="emi_amount" value="<?= e((string)($row['emi_amount'] ?? '')) ?>">
+        </div>
+        <div>
+          <label>Tenure (months)</label>
+          <input type="number" min="1" name="tenure_months" value="<?= e((string)($row['tenure_months'] ?? '')) ?>">
+        </div>
+        <div>
+          <label>EMI start date</label>
+          <input type="date" name="emi_start_date" value="<?= e($row['emi_start_date'] ?? '') ?>">
         </div>
         <div>
           <label>Status</label>
@@ -185,11 +210,14 @@ require __DIR__ . '/../includes/header.php';
               <td class="num"><?= money($l['outstanding_amount']) ?></td>
               <td><?= status_chip($l['status']) ?></td>
               <td class="actions">
+                <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'])) ?>">EMIs</a>
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/bank-loans.php?action=edit&id=' . $l['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" onsubmit="return confirm('Delete loan?')">
+                <?php if (can_delete()): ?>
+                <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$l['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete loan?">Delete</button>
                 </form>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

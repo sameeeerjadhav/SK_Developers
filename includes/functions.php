@@ -96,6 +96,46 @@ function get(string $key, $default = null)
     return isset($_GET[$key]) ? trim((string) $_GET[$key]) : $default;
 }
 
+/** @return array{0:?string,1:?string,2:string} [from, to, monthYm] */
+function period_from_request(): array
+{
+    $month = get('month', '');
+    if (is_string($month) && preg_match('/^\d{4}-\d{2}$/', $month)) {
+        $from = $month . '-01';
+        $to = date('Y-m-t', strtotime($from));
+        return [$from, $to, $month];
+    }
+    return [null, null, ''];
+}
+
+function month_filter_fields(string $selectedMonth = '', bool $preserveGets = true): string
+{
+    $html = '<div class="field"><label>Month</label><select name="month" onchange="this.form.submit()">';
+    $html .= '<option value="">All time</option>';
+    $now = new DateTime('first day of this month');
+    for ($i = 0; $i < 36; $i++) {
+        $ym = $now->format('Y-m');
+        $label = $now->format('M Y');
+        $sel = ($selectedMonth === $ym) ? ' selected' : '';
+        $html .= '<option value="' . e($ym) . '"' . $sel . '>' . e($label) . '</option>';
+        $now->modify('-1 month');
+    }
+    $html .= '</select></div>';
+    return $html;
+}
+
+function apply_date_range(string &$sql, array &$params, ?string $from, ?string $to, string $column = 't.txn_date'): void
+{
+    if ($from) {
+        $sql .= " AND {$column} >= ?";
+        $params[] = $from;
+    }
+    if ($to) {
+        $sql .= " AND {$column} <= ?";
+        $params[] = $to;
+    }
+}
+
 function status_chip(string $status): string
 {
     $map = [
@@ -263,8 +303,15 @@ function create_transaction(
     return (int) $pdo->lastInsertId();
 }
 
-function sum_transactions(PDO $pdo, string $txnType, ?int $companyId = null, ?int $projectId = null, ?string $section = null): float
-{
+function sum_transactions(
+    PDO $pdo,
+    string $txnType,
+    ?int $companyId = null,
+    ?int $projectId = null,
+    ?string $section = null,
+    ?string $from = null,
+    ?string $to = null
+): float {
     $sql = 'SELECT COALESCE(SUM(t.amount),0) AS total
             FROM transactions t
             JOIN categories c ON c.id = t.category_id
@@ -283,10 +330,171 @@ function sum_transactions(PDO $pdo, string $txnType, ?int $companyId = null, ?in
         $sql .= ' AND c.section = ?';
         $params[] = $section;
     }
+    apply_date_range($sql, $params, $from, $to);
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return (float) $stmt->fetchColumn();
+}
+
+function sum_by_category_slug(
+    PDO $pdo,
+    string $section,
+    string $slug,
+    ?int $companyId = null,
+    ?string $from = null,
+    ?string $to = null
+): float {
+    $sql = 'SELECT COALESCE(SUM(t.amount),0)
+            FROM transactions t
+            JOIN categories c ON c.id = t.category_id
+            WHERE c.section = ? AND c.slug = ?';
+    $params = [$section, $slug];
+    if ($companyId) {
+        $sql .= ' AND t.company_id = ?';
+        $params[] = $companyId;
+    }
+    apply_date_range($sql, $params, $from, $to);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (float) $stmt->fetchColumn();
+}
+
+function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, ?string $to = null): array
+{
+    $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId, $from, $to);
+    $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId, $from, $to);
+    $creditBooking = sum_by_category_slug($pdo, 'credit', 'booking', $companyId, $from, $to);
+    $expenses = sum_transactions($pdo, 'debit', $companyId, null, 'expense', $from, $to)
+        + sum_transactions($pdo, 'debit', $companyId, null, 'land_purchase', $from, $to);
+    $bankLoanCredits = sum_by_category_slug($pdo, 'credit', 'bank_loan', $companyId, $from, $to);
+
+    $params = [];
+    $loanSql = 'SELECT COALESCE(SUM(outstanding_amount),0) FROM bank_loans WHERE status = "active"';
+    $assetSql = 'SELECT COALESCE(SUM(COALESCE(current_value, purchase_value)),0) FROM assets WHERE 1=1';
+    $depositSql = 'SELECT COALESCE(SUM(amount),0) FROM deposits WHERE status = "active"';
+
+    if ($companyId) {
+        $loanSql .= ' AND company_id = ?';
+        $assetSql .= ' AND company_id = ?';
+        $depositSql .= ' AND company_id = ?';
+        $params = [$companyId];
+    }
+
+    $outstandingLoans = scalar_sum($pdo, $loanSql, $params);
+    $assets = scalar_sum($pdo, $assetSql, $params);
+    $deposits = scalar_sum($pdo, $depositSql, $params);
+
+    $bankBalance = 0.0;
+    if ($companyId) {
+        $accStmt = $pdo->prepare('SELECT id FROM bank_accounts WHERE status = "active" AND company_id = ?');
+        $accStmt->execute([$companyId]);
+    } else {
+        $accStmt = $pdo->query('SELECT id FROM bank_accounts WHERE status = "active"');
+    }
+    foreach ($accStmt->fetchAll() as $acc) {
+        $bankBalance += account_balance($pdo, (int) $acc['id']);
+    }
+
+    $credits = sum_transactions($pdo, 'credit', $companyId, null, null, $from, $to);
+    $debits = sum_transactions($pdo, 'debit', $companyId, null, null, $from, $to);
+
+    return [
+        'investment'   => $creditInvestment,
+        'partner'      => $creditPartner,
+        'booking'      => $creditBooking,
+        'expense'      => $expenses,
+        'bank_loans'   => $outstandingLoans > 0 ? $outstandingLoans : $bankLoanCredits,
+        'loan_credits' => $bankLoanCredits,
+        'assets'       => $assets,
+        'deposits'     => $deposits,
+        'bank_balance' => $bankBalance,
+        'profit'       => $credits - $debits,
+        'credits'      => $credits,
+        'debits'       => $debits,
+    ];
+}
+
+function uploads_dir(): string
+{
+    $dir = __DIR__ . '/../uploads';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir;
+}
+
+function save_transaction_uploads(PDO $pdo, int $transactionId, array $files, ?int $userId): int
+{
+    if (empty($files['name']) || !is_array($files['name'])) {
+        return 0;
+    }
+    $allowed = ['image/jpeg','image/png','image/webp','image/gif','application/pdf'];
+    $count = 0;
+    $dir = uploads_dir();
+    $n = count($files['name']);
+    for ($i = 0; $i < $n; $i++) {
+        if (($files['error'][$i] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            continue;
+        }
+        if (($files['size'][$i] ?? 0) > 5 * 1024 * 1024) {
+            continue;
+        }
+        $tmp = $files['tmp_name'][$i];
+        $mime = $files['type'][$i] ?? '';
+        if (class_exists('finfo')) {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $detected = $finfo->file($tmp);
+            if ($detected) {
+                $mime = $detected;
+            }
+        }
+        if (!in_array($mime, $allowed, true)) {
+            continue;
+        }
+        $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
+        $ext = preg_replace('/[^a-zA-Z0-9]/', '', (string) $ext) ?: 'bin';
+        $stored = 'txn_' . $transactionId . '_' . bin2hex(random_bytes(8)) . '.' . strtolower($ext);
+        if (!move_uploaded_file($tmp, $dir . '/' . $stored)) {
+            continue;
+        }
+        $stmt = $pdo->prepare('INSERT INTO attachments (transaction_id, original_name, stored_name, mime_type, size_bytes, uploaded_by) VALUES (?,?,?,?,?,?)');
+        $stmt->execute([
+            $transactionId,
+            $files['name'][$i],
+            $stored,
+            $mime,
+            (int) $files['size'][$i],
+            $userId,
+        ]);
+        $count++;
+    }
+    return $count;
+}
+
+function generate_loan_emis(PDO $pdo, int $loanId, float $emiAmount, int $tenureMonths, string $startDate): void
+{
+    $pdo->prepare('DELETE FROM loan_emis WHERE loan_id = ? AND status = "pending"')->execute([$loanId]);
+    $date = new DateTime($startDate);
+    for ($i = 1; $i <= $tenureMonths; $i++) {
+        $stmt = $pdo->prepare('INSERT INTO loan_emis (loan_id, installment_no, due_date, amount, status) VALUES (?,?,?,?, "pending")');
+        $stmt->execute([$loanId, $i, $date->format('Y-m-d'), $emiAmount]);
+        $date->modify('+1 month');
+    }
+}
+
+function refresh_loan_outstanding(PDO $pdo, int $loanId): void
+{
+    $loan = $pdo->prepare('SELECT loan_amount FROM bank_loans WHERE id = ?');
+    $loan->execute([$loanId]);
+    $loanAmount = (float) $loan->fetchColumn();
+    $paid = $pdo->prepare('SELECT COALESCE(SUM(paid_amount),0) FROM loan_emis WHERE loan_id = ?');
+    $paid->execute([$loanId]);
+    $paidTotal = (float) $paid->fetchColumn();
+    $outstanding = max(0, $loanAmount - $paidTotal);
+    $status = $outstanding <= 0.01 ? 'closed' : 'active';
+    $pdo->prepare('UPDATE bank_loans SET outstanding_amount = ?, status = ? WHERE id = ?')
+        ->execute([$outstanding, $status, $loanId]);
 }
 
 function account_balance(PDO $pdo, int $accountId): float
@@ -304,6 +512,13 @@ function account_balance(PDO $pdo, int $accountId): float
     return $opening + (float) $row['credits'] - (float) $row['debits'];
 }
 
+function scalar_sum(PDO $pdo, string $sql, array $params = []): float
+{
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return (float) $stmt->fetchColumn();
+}
+
 function project_profit(PDO $pdo, int $projectId): float
 {
     return sum_transactions($pdo, 'credit', null, $projectId) - sum_transactions($pdo, 'debit', null, $projectId);
@@ -312,87 +527,6 @@ function project_profit(PDO $pdo, int $projectId): float
 function company_profit(PDO $pdo, int $companyId): float
 {
     return sum_transactions($pdo, 'credit', $companyId) - sum_transactions($pdo, 'debit', $companyId);
-}
-
-function sum_by_category_slug(PDO $pdo, string $section, string $slug, ?int $companyId = null): float
-{
-    $sql = 'SELECT COALESCE(SUM(t.amount),0)
-            FROM transactions t
-            JOIN categories c ON c.id = t.category_id
-            WHERE c.section = ? AND c.slug = ?';
-    $params = [$section, $slug];
-    if ($companyId) {
-        $sql .= ' AND t.company_id = ?';
-        $params[] = $companyId;
-    }
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (float) $stmt->fetchColumn();
-}
-
-function scalar_sum(PDO $pdo, string $sql, array $params = []): float
-{
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    return (float) $stmt->fetchColumn();
-}
-
-function summary_totals(PDO $pdo, ?int $companyId = null): array
-{
-    $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId);
-    $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId);
-    $creditBooking = sum_by_category_slug($pdo, 'credit', 'booking', $companyId);
-    $expenses = sum_transactions($pdo, 'debit', $companyId, null, 'expense')
-        + sum_transactions($pdo, 'debit', $companyId, null, 'land_purchase');
-    $bankLoanCredits = sum_by_category_slug($pdo, 'credit', 'bank_loan', $companyId);
-
-    $params = [];
-    $loanSql = 'SELECT COALESCE(SUM(outstanding_amount),0) FROM bank_loans WHERE status = "active"';
-    $assetSql = 'SELECT COALESCE(SUM(COALESCE(current_value, purchase_value)),0) FROM assets WHERE 1=1';
-    $depositSql = 'SELECT COALESCE(SUM(amount),0) FROM deposits WHERE status = "active"';
-    $bankOpenSql = 'SELECT COALESCE(SUM(opening_balance),0) FROM bank_accounts WHERE status = "active"';
-
-    if ($companyId) {
-        $loanSql .= ' AND company_id = ?';
-        $assetSql .= ' AND company_id = ?';
-        $depositSql .= ' AND company_id = ?';
-        $bankOpenSql .= ' AND company_id = ?';
-        $params = [$companyId];
-    }
-
-    $outstandingLoans = scalar_sum($pdo, $loanSql, $params);
-    $assets = scalar_sum($pdo, $assetSql, $params);
-    $deposits = scalar_sum($pdo, $depositSql, $params);
-
-    // Live bank balances = openings + linked txn credits - debits
-    $bankBalance = 0.0;
-    if ($companyId) {
-        $accStmt = $pdo->prepare('SELECT id FROM bank_accounts WHERE status = "active" AND company_id = ?');
-        $accStmt->execute([$companyId]);
-    } else {
-        $accStmt = $pdo->query('SELECT id FROM bank_accounts WHERE status = "active"');
-    }
-    foreach ($accStmt->fetchAll() as $acc) {
-        $bankBalance += account_balance($pdo, (int) $acc['id']);
-    }
-
-    $credits = sum_transactions($pdo, 'credit', $companyId);
-    $debits = sum_transactions($pdo, 'debit', $companyId);
-
-    return [
-        'investment'   => $creditInvestment,
-        'partner'      => $creditPartner,
-        'booking'      => $creditBooking,
-        'expense'      => $expenses,
-        'bank_loans'   => $outstandingLoans > 0 ? $outstandingLoans : $bankLoanCredits,
-        'loan_credits' => $bankLoanCredits,
-        'assets'       => $assets,
-        'deposits'     => $deposits,
-        'bank_balance' => $bankBalance,
-        'profit'       => $credits - $debits,
-        'credits'      => $credits,
-        'debits'       => $debits,
-    ];
 }
 
 function section_breakdown(PDO $pdo, int $projectId, string $section): array

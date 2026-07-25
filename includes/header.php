@@ -9,6 +9,7 @@ $nav = [
     ['label' => 'Overview', 'items' => [
         ['href' => 'index.php', 'label' => 'Dashboard', 'icon' => 'dash', 'match' => ['index.php']],
         ['href' => 'pages/summary.php', 'label' => 'Total Summary', 'icon' => 'summary', 'match' => ['summary.php']],
+        ['href' => 'pages/reports.php', 'label' => 'PDF Reports', 'icon' => 'summary', 'match' => ['reports.php']],
     ]],
     ['label' => 'Organisation', 'items' => [
         ['href' => 'pages/companies.php', 'label' => 'Companies', 'icon' => 'company', 'match' => ['companies.php']],
@@ -19,16 +20,17 @@ $nav = [
         ['href' => 'pages/partners.php', 'label' => 'Partner', 'icon' => 'partner', 'match' => ['partners.php']],
         ['href' => 'pages/expenses.php', 'label' => 'Expense', 'icon' => 'expense', 'match' => ['expenses.php']],
         ['href' => 'pages/assets.php', 'label' => 'Asset', 'icon' => 'asset', 'match' => ['assets.php']],
-        ['href' => 'pages/bank-loans.php', 'label' => 'Bank Loans', 'icon' => 'loan', 'match' => ['bank-loans.php']],
-        ['href' => 'pages/bank-accounts.php', 'label' => 'Bank Account', 'icon' => 'bank', 'match' => ['bank-accounts.php']],
+        ['href' => 'pages/bank-loans.php', 'label' => 'Bank Loans', 'icon' => 'loan', 'match' => ['bank-loans.php', 'loan-view.php']],
+        ['href' => 'pages/bank-accounts.php', 'label' => 'Bank Account', 'icon' => 'bank', 'match' => ['bank-accounts.php', 'bank-account-view.php']],
         ['href' => 'pages/deposits.php', 'label' => 'Deposit', 'icon' => 'deposit', 'match' => ['deposits.php']],
     ]],
     ['label' => 'Ledger', 'items' => [
         ['href' => 'pages/transactions.php', 'label' => 'Transactions', 'icon' => 'txn', 'match' => ['transactions.php']],
     ]],
-    ['label' => 'Account', 'items' => [
+    ['label' => 'Account', 'items' => array_values(array_filter([
         ['href' => 'pages/profile.php', 'label' => 'Profile', 'icon' => 'partner', 'match' => ['profile.php']],
-    ]],
+        is_admin() ? ['href' => 'pages/users.php', 'label' => 'Users & roles', 'icon' => 'company', 'match' => ['users.php']] : null,
+    ]))],
 ];
 
 function nav_icon(string $name): string
@@ -61,6 +63,7 @@ function nav_icon(string $name): string
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= e(base_url('assets/css/app.css')) ?>">
+  <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
 </head>
 <body>
 <div class="app-shell">

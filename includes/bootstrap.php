@@ -66,3 +66,12 @@ try {
 
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/migrate.php';
+
+if ($pdo instanceof PDO) {
+    try {
+        ensure_v2_schema($pdo);
+    } catch (Throwable $e) {
+        // Non-fatal — app can still load; features needing new tables will fail softly
+    }
+}

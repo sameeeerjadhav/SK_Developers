@@ -6,7 +6,9 @@ require_login();
 $filterCompany = (int) get('company_id', 0);
 $pageTitle = 'Expenses';
 $pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
+$pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php?type=expenses')) . '">PDF</a><a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
+
+[$from, $to, $month] = period_from_request();
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.section
         FROM transactions t
@@ -16,6 +18,7 @@ $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS 
         WHERE t.txn_type = 'debit' AND cat.section IN ('expense','land_purchase')";
 $params = [];
 if ($filterCompany) { $sql .= ' AND t.company_id = ?'; $params[] = $filterCompany; }
+apply_date_range($sql, $params, $from, $to);
 $sql .= ' ORDER BY t.txn_date DESC';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
@@ -29,6 +32,7 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Entries</div><div class="stat-value"><?= count($rows) ?></div></div>
 </div>
 <form class="filters" method="get">
+  <?= month_filter_fields($month) ?>
   <div class="field">
     <label>Company</label>
     <select name="company_id" onchange="this.form.submit()">
