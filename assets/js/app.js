@@ -164,6 +164,44 @@
     });
   });
 
+  // Bulk-select export toolbar (Investments page)
+  var exportForm = document.getElementById('investmentsExportForm');
+  if (exportForm) {
+    var selectAll = document.getElementById('selectAllTxns');
+    var selectedCount = document.getElementById('selectedCount');
+    var exportCsvBtn = document.getElementById('exportCsvBtn');
+    var exportPdfBtn = document.getElementById('exportPdfBtn');
+
+    var getCheckboxes = function () {
+      return Array.prototype.slice.call(exportForm.querySelectorAll('.txn-checkbox'));
+    };
+
+    var refreshToolbar = function () {
+      var boxes = getCheckboxes();
+      var checked = boxes.filter(function (b) { return b.checked; });
+      if (selectedCount) selectedCount.textContent = checked.length + ' selected';
+      if (exportCsvBtn) exportCsvBtn.disabled = checked.length === 0;
+      if (exportPdfBtn) exportPdfBtn.disabled = checked.length === 0;
+      if (selectAll) {
+        selectAll.checked = boxes.length > 0 && checked.length === boxes.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
+      }
+    };
+
+    exportForm.addEventListener('change', function (e) {
+      if (e.target.classList.contains('txn-checkbox')) refreshToolbar();
+    });
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        getCheckboxes().forEach(function (b) { b.checked = selectAll.checked; });
+        refreshToolbar();
+      });
+    }
+
+    refreshToolbar();
+  }
+
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {
       if (!confirm(el.getAttribute('data-confirm') || 'Are you sure?')) {
