@@ -389,10 +389,18 @@ function ensure_v2_schema(PDO $pdo): void
           id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           loan_id INT UNSIGNED NOT NULL,
           name VARCHAR(160) NOT NULL,
-          phone VARCHAR(40) NULL,
+          loan_amount DECIMAL(14,2) NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT fk_borrower_loan FOREIGN KEY (loan_id) REFERENCES bank_loans(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    $borrowerCols = $pdo->query("SHOW COLUMNS FROM loan_borrowers")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('loan_amount', $borrowerCols, true)) {
+        $pdo->exec('ALTER TABLE loan_borrowers ADD COLUMN loan_amount DECIMAL(14,2) NULL AFTER name');
+    }
+    if (in_array('phone', $borrowerCols, true)) {
+        $pdo->exec('ALTER TABLE loan_borrowers DROP COLUMN phone');
     }
 
     // ---- Project land-record fields ----

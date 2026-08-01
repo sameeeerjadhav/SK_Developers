@@ -135,9 +135,10 @@ $totalRepaid = array_sum(array_map(fn($r) => (float) $r['amount'], $repayments))
 $principalRepaid = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $repayments));
 $interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $repayments));
 
-$borrowerStmt = $pdo->prepare('SELECT name, phone FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+$borrowerStmt = $pdo->prepare('SELECT name, loan_amount FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
 $borrowerStmt->execute([$id]);
 $borrowers = $borrowerStmt->fetchAll();
+$borrowersTotal = array_sum(array_map(fn($b) => (float) ($b['loan_amount'] ?? 0), $borrowers));
 
 $pageTitle = $loan['lender_name'];
 $pageSub = 'Loan repayments — ' . $loan['company_name'] . '. Amounts vary, so each repayment is entered manually.';
@@ -164,12 +165,15 @@ require __DIR__ . '/../includes/header.php';
   <h2 class="card-title">Borrowers / guarantors</h2>
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>Name</th><th>Phone</th></tr></thead>
+      <thead><tr><th>Name</th><th class="num">Loan amount</th></tr></thead>
       <tbody>
         <?php foreach ($borrowers as $b): ?>
-          <tr><td><?= e($b['name']) ?></td><td><?= e($b['phone'] ?: '—') ?></td></tr>
+          <tr><td><?= e($b['name']) ?></td><td class="num"><?= $b['loan_amount'] !== null ? money($b['loan_amount']) : '—' ?></td></tr>
         <?php endforeach; ?>
       </tbody>
+      <?php if ($borrowersTotal > 0): ?>
+      <tfoot><tr><td>Total</td><td class="num"><?= money($borrowersTotal) ?></td></tr></tfoot>
+      <?php endif; ?>
     </table>
   </div>
 </div>
