@@ -450,6 +450,25 @@ table.detail-table td:last-child { font-weight: 600; }
 .export-toolbar .export-actions { margin-left: auto; display: flex; gap: 0.55rem; flex-wrap: wrap; }
 table.data th.select-col, table.data td.select-col { width: 2.2rem; text-align: center; padding-right: 0; }
 
+.investment-section { margin-top: 1.1rem; border-top: 3px solid transparent; }
+.investment-section-head { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.investment-section-icon {
+  width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.investment-section-title { font-family: Sora, sans-serif; font-weight: 800; font-size: 1.05rem; }
+.investment-section-sub { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
+.investment-section-badge {
+  margin-left: auto; font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; padding: 0.3rem 0.75rem; border-radius: 999px; white-space: nowrap;
+}
+.investment-section-fixed { border-top-color: var(--primary); }
+.investment-section-fixed .investment-section-icon { background: var(--primary-soft); color: var(--primary-dark); }
+.investment-section-fixed .investment-section-badge { background: var(--primary-soft); color: var(--primary-dark); }
+.investment-section-regular { border-top-color: #d97706; }
+.investment-section-regular .investment-section-icon { background: #fef3c7; color: #b45309; }
+.investment-section-regular .investment-section-badge { background: #fef3c7; color: #b45309; }
+
 .chip {
   display: inline-flex; align-items: center;
   padding: 0.2rem 0.55rem; border-radius: 999px;
