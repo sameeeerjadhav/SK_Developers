@@ -210,6 +210,54 @@ CREATE TABLE booking_details (
   UNIQUE KEY uq_booking_txn (transaction_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE customers (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(40) NULL,
+  email VARCHAR(160) NULL,
+  address TEXT NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_customers_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE bookings (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id INT UNSIGNED NOT NULL,
+  company_id INT UNSIGNED NOT NULL,
+  project_id INT UNSIGNED NULL,
+  property_type ENUM('row_house','flat','plot') NOT NULL,
+  plot_no VARCHAR(60) NULL,
+  area_sqft DECIMAL(12,2) NOT NULL DEFAULT 0,
+  rate_per_sqft DECIMAL(12,2) NOT NULL DEFAULT 0,
+  total_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  status ENUM('active','cancelled','completed') NOT NULL DEFAULT 'active',
+  notes TEXT NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_booking_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
+  CONSTRAINT fk_booking_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT fk_booking_project FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+  CONSTRAINT fk_booking_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_bookings_customer (customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE booking_payments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  booking_id INT UNSIGNED NOT NULL,
+  transaction_id INT UNSIGNED NULL,
+  payment_type ENUM('received','returned') NOT NULL DEFAULT 'received',
+  amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  payment_date DATE NOT NULL,
+  notes TEXT NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_bp_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_bp_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+  CONSTRAINT fk_bp_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_bp_booking (booking_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Default admin: admin@saikuber.com / Admin@123
 INSERT INTO users (name, email, password, role) VALUES
 ('Admin', 'admin@saikuber.com', '$2y$12$v0ZJnO7EeTm7C9nrkIJYmuKoJL5KCd3s6sEDllOswDyrY2z2N5g22', 'admin');
@@ -251,7 +299,8 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 ('general', 'Bank Transfer', 'bank_transfer', 40),
 ('general', 'Investment Withdrawal', 'investment_withdrawal', 50),
 ('general', 'Daily Debit', 'daily_debit', 51),
-('general', 'Monthly Debit', 'monthly_debit', 52);
+('general', 'Monthly Debit', 'monthly_debit', 52),
+('general', 'Booking Refund', 'booking_refund', 53);
 
 -- Sample projects
 INSERT INTO projects (company_id, name, location, status, start_date) VALUES

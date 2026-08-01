@@ -19,6 +19,7 @@ $nav = [
     ]],
     ['label' => 'General Topics', 'items' => [
         ['href' => 'pages/investments.php', 'label' => 'Investment', 'icon' => 'invest', 'match' => ['investments.php']],
+        ['href' => 'pages/bookings.php', 'label' => 'Bookings', 'icon' => 'booking', 'match' => ['bookings.php']],
         ['href' => 'pages/partners.php', 'label' => 'Partner', 'icon' => 'partner', 'match' => ['partners.php']],
         ['href' => 'pages/expenses.php', 'label' => 'Expense', 'icon' => 'expense', 'match' => ['expenses.php']],
         ['href' => 'pages/assets.php', 'label' => 'Asset', 'icon' => 'asset', 'match' => ['assets.php']],
@@ -46,6 +47,7 @@ function nav_icon(string $name): string
         'company' => '<path d="M3 21h18v-2H3v2zm2-4h2V7H5v10zm4 0h2V3H9v14zm4 0h2V9h-2v8zm4 0h2V5h-2v12z"/>',
         'project' => '<path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>',
         'invest' => '<path d="M12 3v18M7 8l5-5 5 5M7 16l5 5 5-5"/>',
+        'booking' => '<path d="M3 10l9-6 9 6v9a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2v-9z"/>',
         'partner' => '<path d="M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 20a8 8 0 0 1 16 0"/>',
         'expense' => '<path d="M12 2v20M17 7H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
         'asset' => '<path d="M4 20h16M6 20V10l6-6 6 6v10"/>',

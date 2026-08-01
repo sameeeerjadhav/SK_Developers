@@ -284,6 +284,7 @@ function status_chip(string $status): string
         'withdrawn' => 'warning',
         'credit'    => 'success',
         'debit'     => 'danger',
+        'cancelled' => 'danger',
     ];
     $class = $map[$status] ?? 'primary';
     $label = ucwords(str_replace('_', ' ', $status));
