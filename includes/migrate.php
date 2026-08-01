@@ -204,6 +204,7 @@ function ensure_v2_schema(PDO $pdo): void
           id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           transaction_id INT UNSIGNED NOT NULL,
           customer_name VARCHAR(160) NULL,
+          property_type ENUM('row_house','flat','plot') NULL,
           plot_no VARCHAR(60) NULL,
           area_sqft DECIMAL(12,2) NULL,
           rate_per_sqft DECIMAL(12,2) NULL,
@@ -215,5 +216,14 @@ function ensure_v2_schema(PDO $pdo): void
           CONSTRAINT fk_booking_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
           UNIQUE KEY uq_booking_txn (transaction_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    $bookingCols = [];
+    try {
+        $bookingCols = $pdo->query('SHOW COLUMNS FROM booking_details')->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
+    }
+    if ($bookingCols && !in_array('property_type', $bookingCols, true)) {
+        $pdo->exec("ALTER TABLE booking_details ADD COLUMN property_type ENUM('row_house','flat','plot') NULL AFTER customer_name");
     }
 }

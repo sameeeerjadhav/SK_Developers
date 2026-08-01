@@ -233,7 +233,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($catRow['slug'] === 'booking' && $txnId) {
             $customerName = post('customer_name', '');
-            $plotNo = post('plot_no', '');
+            $propertyType = post('property_type', '');
+            if (!in_array($propertyType, ['row_house', 'flat', 'plot'], true)) {
+                $propertyType = null;
+            }
+            $plotNo = $propertyType === 'plot' ? post('plot_no', '') : '';
             $areaSqft = (float) post('area_sqft', 0);
             $ratePerSqft = (float) post('rate_per_sqft', 0);
             $amountReturned = (float) post('amount_returned', 0);
@@ -244,11 +248,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $bChk->execute([$txnId]);
             $bookingId = $bChk->fetchColumn();
             if ($bookingId) {
-                $bUpd = $pdo->prepare('UPDATE booking_details SET customer_name=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, amount_received=?, amount_returned=?, remaining_amount=? WHERE id=?');
-                $bUpd->execute([$customerName, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $amount, $amountReturned, $remaining, $bookingId]);
+                $bUpd = $pdo->prepare('UPDATE booking_details SET customer_name=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, amount_received=?, amount_returned=?, remaining_amount=? WHERE id=?');
+                $bUpd->execute([$customerName, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $amount, $amountReturned, $remaining, $bookingId]);
             } else {
-                $bIns = $pdo->prepare('INSERT INTO booking_details (transaction_id, customer_name, plot_no, area_sqft, rate_per_sqft, total_amount, amount_received, amount_returned, remaining_amount) VALUES (?,?,?,?,?,?,?,?,?)');
-                $bIns->execute([$txnId, $customerName, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $amount, $amountReturned, $remaining]);
+                $bIns = $pdo->prepare('INSERT INTO booking_details (transaction_id, customer_name, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, amount_received, amount_returned, remaining_amount) VALUES (?,?,?,?,?,?,?,?,?,?)');
+                $bIns->execute([$txnId, $customerName, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $amount, $amountReturned, $remaining]);
             }
         } elseif ($editId) {
             // Category changed away from Booking — drop any stale booking detail record
@@ -402,6 +406,15 @@ if ($action === 'add' || $action === 'edit') {
               <input type="text" name="customer_name" id="booking_customer_name" value="<?= e($booking['customer_name'] ?? '') ?>">
             </div>
             <div>
+              <label>Property type</label>
+              <select name="property_type" id="booking_property_type">
+                <option value="">Select type</option>
+                <option value="row_house" <?= ($booking['property_type'] ?? '') === 'row_house' ? 'selected' : '' ?>>Row House</option>
+                <option value="flat" <?= ($booking['property_type'] ?? '') === 'flat' ? 'selected' : '' ?>>Flat</option>
+                <option value="plot" <?= ($booking['property_type'] ?? '') === 'plot' ? 'selected' : '' ?>>Plot</option>
+              </select>
+            </div>
+            <div id="booking_plot_no_field" style="display:none">
               <label>Plot no.</label>
               <input type="text" name="plot_no" id="booking_plot_no" value="<?= e($booking['plot_no'] ?? '') ?>">
             </div>
@@ -485,6 +498,8 @@ if ($action === 'add' || $action === 'edit') {
         var amountLabel = document.getElementById('amount_label');
         var amountEl = document.getElementById('txn_amount');
         var bookingFields = document.getElementById('booking_fields');
+        var propertyTypeEl = document.getElementById('booking_property_type');
+        var plotNoField = document.getElementById('booking_plot_no_field');
         var areaEl = document.getElementById('booking_area');
         var rateEl = document.getElementById('booking_rate');
         var totalEl = document.getElementById('booking_total');
@@ -505,6 +520,10 @@ if ($action === 'add' || $action === 'edit') {
           remainingEl.value = money(total - received + returned);
         }
 
+        function togglePlotNo() {
+          plotNoField.style.display = propertyTypeEl.value === 'plot' ? '' : 'none';
+        }
+
         function toggleBookingFields() {
           var isBooking = CATEGORY_SLUGS[categoryEl.value] === 'booking';
           bookingFields.style.display = isBooking ? '' : 'none';
@@ -516,6 +535,8 @@ if ($action === 'add' || $action === 'edit') {
           el.addEventListener('input', recalcBooking);
         });
         categoryEl.addEventListener('change', toggleBookingFields);
+        propertyTypeEl.addEventListener('change', togglePlotNo);
+        togglePlotNo();
 
         function addOption(parent, opt, selectId, state) {
           var o = document.createElement('option');

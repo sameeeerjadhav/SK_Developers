@@ -197,6 +197,7 @@ CREATE TABLE booking_details (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   transaction_id INT UNSIGNED NOT NULL,
   customer_name VARCHAR(160) NULL,
+  property_type ENUM('row_house','flat','plot') NULL,
   plot_no VARCHAR(60) NULL,
   area_sqft DECIMAL(12,2) NULL,
   rate_per_sqft DECIMAL(12,2) NULL,
