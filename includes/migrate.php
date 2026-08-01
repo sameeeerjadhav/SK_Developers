@@ -183,4 +183,17 @@ function ensure_v2_schema(PDO $pdo): void
             $ins->execute([$catName, $catSlug, $catSort]);
         }
     }
+
+    // Ensure Daily Debit / Monthly Debit exist — debit-side mirror of Daily/Monthly Credit
+    foreach ([
+        ['Daily Debit', 'daily_debit', 51],
+        ['Monthly Debit', 'monthly_debit', 52],
+    ] as [$catName, $catSlug, $catSort]) {
+        $chkCat = $pdo->prepare("SELECT id FROM categories WHERE section='general' AND slug=? LIMIT 1");
+        $chkCat->execute([$catSlug]);
+        if (!$chkCat->fetchColumn()) {
+            $ins = $pdo->prepare("INSERT INTO categories (section, name, slug, sort_order) VALUES ('general', ?, ?, ?)");
+            $ins->execute([$catName, $catSlug, $catSort]);
+        }
+    }
 }
