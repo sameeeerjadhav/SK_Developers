@@ -116,7 +116,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         audit_log($pdo, 'create', 'booking_payment', $bookingId, 'Recorded payment for booking #' . $bookingId . ' — received ' . money($amountReceived) . ', returned ' . money($amountReturned));
         flash('success', 'Payment recorded.');
-        redirect('pages/bookings.php');
+        redirect('pages/bookings.php?expand=' . $bookingId);
+    }
+
+    if ($postAction === 'edit_payment') {
+        $paymentId = (int) post('payment_id', 0);
+        $paymentType = post('payment_type', 'received');
+        if (!in_array($paymentType, ['received', 'returned'], true)) {
+            $paymentType = 'received';
+        }
+        $amount = (float) post('amount', 0);
+        $paymentDate = post('payment_date', date('Y-m-d'));
+        $notes = post('notes', '');
+
+        $pStmt = $pdo->prepare(
+            'SELECT bp.*, b.company_id, b.project_id, b.property_type, b.plot_no, cu.name AS customer_name
+             FROM booking_payments bp
+             JOIN bookings b ON b.id = bp.booking_id
+             JOIN customers cu ON cu.id = b.customer_id
+             WHERE bp.id = ?'
+        );
+        $pStmt->execute([$paymentId]);
+        $payment = $pStmt->fetch();
+        if (!$payment || $amount <= 0) {
+            flash('error', 'Invalid payment.');
+            redirect('pages/bookings.php');
+        }
+
+        $propertyLabel = $payment['property_type'] === 'plot'
+            ? ('Plot ' . ($payment['plot_no'] ?: '—'))
+            : ucwords(str_replace('_', ' ', $payment['property_type']));
+        $categorySlug = $paymentType === 'received' ? 'booking' : 'booking_refund';
+        $categorySection = $paymentType === 'received' ? 'credit' : 'general';
+        $categoryId = category_id_by_slug($pdo, $categorySection, $categorySlug);
+        $txnType = $paymentType === 'received' ? 'credit' : 'debit';
+        $description = ($paymentType === 'received' ? 'Booking payment' : 'Booking refund') . ' — ' . $payment['customer_name'] . ' — ' . $propertyLabel;
+
+        if ($payment['transaction_id'] && $categoryId) {
+            $pdo->prepare('UPDATE transactions SET category_id=?, txn_type=?, amount=?, txn_date=?, description=? WHERE id=?')
+                ->execute([$categoryId, $txnType, $amount, $paymentDate, $description, $payment['transaction_id']]);
+        }
+
+        $pdo->prepare('UPDATE booking_payments SET payment_type=?, amount=?, payment_date=?, notes=? WHERE id=?')
+            ->execute([$paymentType, $amount, $paymentDate, $notes, $paymentId]);
+
+        audit_log($pdo, 'update', 'booking_payment', (int) $payment['booking_id'], 'Edited payment #' . $paymentId . ' to ' . money($amount) . ' (' . $paymentType . ')');
+        flash('success', 'Payment updated.');
+        redirect('pages/bookings.php?expand=' . (int) $payment['booking_id']);
     }
 
     if ($postAction === 'delete') {
@@ -558,14 +604,47 @@ require __DIR__ . '/../includes/header.php';
                     <table class="data">
                       <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead>
                       <tbody>
-                        <?php foreach ($payments as $pay): ?>
-                          <tr>
-                            <td><?= e(format_date($pay['payment_date'])) ?></td>
+                        <?php foreach ($payments as $pay):
+                          $payEditId = 'pay-edit-' . $pay['id'];
+                        ?>
+                          <tr class="row-clickable" data-row-toggle="<?= e($payEditId) ?>" title="Click to edit">
+                            <td><span class="row-caret">▸</span><?= e(format_date($pay['payment_date'])) ?></td>
                             <td><?= $pay['payment_type'] === 'received' ? '<span class="chip chip-success">Received</span>' : '<span class="chip chip-danger">Returned</span>' ?></td>
                             <td class="num <?= $pay['payment_type'] === 'received' ? 'text-success' : 'text-danger' ?>">
                               <?= $pay['payment_type'] === 'received' ? '+' : '−' ?><?= money($pay['amount']) ?>
                             </td>
                             <td><?= e($pay['notes'] ?: '') ?></td>
+                          </tr>
+                          <tr class="row-detail" id="<?= e($payEditId) ?>" hidden>
+                            <td colspan="4">
+                              <form method="post" class="form-grid" style="padding:0">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="edit_payment">
+                                <input type="hidden" name="payment_id" value="<?= (int) $pay['id'] ?>">
+                                <div>
+                                  <label>Type</label>
+                                  <select name="payment_type">
+                                    <option value="received" <?= $pay['payment_type'] === 'received' ? 'selected' : '' ?>>Received</option>
+                                    <option value="returned" <?= $pay['payment_type'] === 'returned' ? 'selected' : '' ?>>Returned</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label>Amount (₹)</label>
+                                  <input type="number" step="0.01" min="0.01" name="amount" required value="<?= e((string) $pay['amount']) ?>">
+                                </div>
+                                <div>
+                                  <label>Date</label>
+                                  <input type="date" name="payment_date" required value="<?= e($pay['payment_date']) ?>">
+                                </div>
+                                <div class="full">
+                                  <label>Notes</label>
+                                  <input type="text" name="notes" value="<?= e($pay['notes'] ?? '') ?>">
+                                </div>
+                                <div class="full form-actions" style="justify-content:flex-start">
+                                  <button class="btn btn-primary btn-sm" type="submit">Save changes</button>
+                                </div>
+                              </form>
+                            </td>
                           </tr>
                         <?php endforeach; ?>
                       </tbody>
