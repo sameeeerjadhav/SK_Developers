@@ -52,6 +52,28 @@ if ($rows) {
     }
 }
 
+// Group entries by company so each company shows once, with its transactions in a dropdown
+$companies = [];
+foreach ($rows as $row) {
+    $cid = (int) $row['company_id'];
+    if (!isset($companies[$cid])) {
+        $companies[$cid] = [
+            'id' => $cid,
+            'name' => $row['company_name'],
+            'rows' => [],
+            'in' => 0.0,
+            'out' => 0.0,
+        ];
+    }
+    $companies[$cid]['rows'][] = $row;
+    if ($row['txn_type'] === 'credit') {
+        $companies[$cid]['in'] += (float) $row['amount'];
+    } else {
+        $companies[$cid]['out'] += (float) $row['amount'];
+    }
+}
+uasort($companies, fn($a, $b) => strcmp($a['name'], $b['name']));
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
@@ -97,67 +119,104 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </form>
 <div class="card">
-  <?php if (!$rows): ?>
+  <?php if (!$companies): ?>
     <div class="empty"><strong>No investments yet</strong><p>Add an investment (credit) or a withdrawal (debit) entry.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>Date</th><th>Company</th><th>Project</th><th>Type</th><th>Note</th><th class="num">Amount</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Entries</th>
+            <th class="num">Invested</th>
+            <th class="num">Withdrawn</th>
+            <th class="num">Net</th>
+          </tr>
+        </thead>
         <tbody>
-          <?php foreach ($rows as $row):
-            $detailId = 'inv-detail-' . (int) $row['id'];
-            $atts = $attachmentsByTxn[(int) $row['id']] ?? [];
+          <?php foreach ($companies as $co):
+            $coDetailId = 'co-detail-' . $co['id'];
+            $net = $co['in'] - $co['out'];
           ?>
-            <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
-              <td><span class="row-caret">▸</span><?= e($row['txn_date']) ?></td>
-              <td><?= e($row['company_name']) ?></td>
-              <td><?= e($row['project_name'] ?? '—') ?></td>
-              <td><?= txn_type_chip($row['txn_type']) ?></td>
-              <td><?= e($row['description'] ?? '') ?></td>
-              <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
-                <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
-              </td>
+            <tr class="row-clickable" data-row-toggle="<?= e($coDetailId) ?>">
+              <td><span class="row-caret">▸</span><strong><?= e($co['name']) ?></strong></td>
+              <td><?= count($co['rows']) ?></td>
+              <td class="num text-success"><?= money($co['in']) ?></td>
+              <td class="num text-danger"><?= money($co['out']) ?></td>
+              <td class="num <?= $net >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($net) ?></td>
             </tr>
-            <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
-              <td colspan="6">
-                <div class="detail-grid">
-                <table class="detail-table">
-                  <tbody>
-                    <tr>
-                      <td>Category</td>
-                      <td><?= e($row['category_name']) ?></td>
-                    </tr>
-                    <tr>
-                      <td>Reference no.</td>
-                      <td><?= e($row['reference_no'] ?: '—') ?></td>
-                    </tr>
-                    <tr>
-                      <td>Bank account</td>
-                      <td><?= $row['account_name'] ? e($row['account_name'] . ' — ' . $row['bank_name']) : '—' ?></td>
-                    </tr>
-                    <tr>
-                      <td>Recorded by</td>
-                      <td><?= e($row['created_by_name'] ?? '—') ?></td>
-                    </tr>
-                    <tr>
-                      <td>Added on</td>
-                      <td><?= e(format_date($row['created_at'] ?? null)) ?></td>
-                    </tr>
-                    <tr>
-                      <td>Description</td>
-                      <td style="font-weight:500"><?= nl2br(e($row['description'] ?: '—')) ?></td>
-                    </tr>
-                  </tbody>
-                </table>
-                <?php if ($atts): ?>
-                  <div class="detail-attachments">
-                    <?php foreach ($atts as $att): ?>
-                      <a class="chip chip-primary" href="<?= e(base_url('pages/attachment.php?id=' . $att['id'])) ?>" target="_blank"><?= e($att['original_name']) ?></a>
-                    <?php endforeach; ?>
-                  </div>
-                <?php endif; ?>
-                <div class="form-actions" style="margin-top:0.9rem">
-                  <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit transaction</a>
+            <tr class="row-detail" id="<?= e($coDetailId) ?>" hidden>
+              <td colspan="5">
+                <div class="table-wrap">
+                  <table class="data">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Project</th>
+                        <th>Type</th>
+                        <th>Note</th>
+                        <th class="num">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <?php foreach ($co['rows'] as $row):
+                        $detailId = 'inv-detail-' . (int) $row['id'];
+                        $atts = $attachmentsByTxn[(int) $row['id']] ?? [];
+                      ?>
+                        <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
+                          <td><span class="row-caret">▸</span><?= e($row['txn_date']) ?></td>
+                          <td><?= e($row['project_name'] ?? '—') ?></td>
+                          <td><?= txn_type_chip($row['txn_type']) ?></td>
+                          <td><?= e($row['description'] ?? '') ?></td>
+                          <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
+                            <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
+                          </td>
+                        </tr>
+                        <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
+                          <td colspan="5">
+                            <table class="detail-table">
+                              <tbody>
+                                <tr>
+                                  <td>Category</td>
+                                  <td><?= e($row['category_name']) ?></td>
+                                </tr>
+                                <tr>
+                                  <td>Reference no.</td>
+                                  <td><?= e($row['reference_no'] ?: '—') ?></td>
+                                </tr>
+                                <tr>
+                                  <td>Bank account</td>
+                                  <td><?= $row['account_name'] ? e($row['account_name'] . ' — ' . $row['bank_name']) : '—' ?></td>
+                                </tr>
+                                <tr>
+                                  <td>Recorded by</td>
+                                  <td><?= e($row['created_by_name'] ?? '—') ?></td>
+                                </tr>
+                                <tr>
+                                  <td>Added on</td>
+                                  <td><?= e(format_date($row['created_at'] ?? null)) ?></td>
+                                </tr>
+                                <tr>
+                                  <td>Description</td>
+                                  <td style="font-weight:500"><?= nl2br(e($row['description'] ?: '—')) ?></td>
+                                </tr>
+                              </tbody>
+                            </table>
+                            <?php if ($atts): ?>
+                              <div class="detail-attachments">
+                                <?php foreach ($atts as $att): ?>
+                                  <a class="chip chip-primary" href="<?= e(base_url('pages/attachment.php?id=' . $att['id'])) ?>" target="_blank"><?= e($att['original_name']) ?></a>
+                                <?php endforeach; ?>
+                              </div>
+                            <?php endif; ?>
+                            <div class="form-actions" style="margin-top:0.9rem">
+                              <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit transaction</a>
+                            </div>
+                          </td>
+                        </tr>
+                      <?php endforeach; ?>
+                    </tbody>
+                  </table>
                 </div>
               </td>
             </tr>
