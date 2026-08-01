@@ -164,6 +164,22 @@
     });
   });
 
+  // Live "remaining after this entry" preview on booking payment forms
+  document.addEventListener('input', function (e) {
+    if (!e.target.classList.contains('pay-amount-field')) return;
+    var form = e.target.closest('form.record-payment-form');
+    if (!form) return;
+    var base = parseFloat(form.getAttribute('data-remaining')) || 0;
+    var received = parseFloat(form.querySelector('[name="amount_received"]').value) || 0;
+    var returned = parseFloat(form.querySelector('[name="amount_returned"]').value) || 0;
+    var next = base - received + returned;
+    var preview = form.querySelector('.remaining-preview');
+    if (!preview) return;
+    preview.textContent = '₹' + next.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    preview.classList.toggle('text-danger', next > 0);
+    preview.classList.toggle('text-success', next <= 0);
+  });
+
   // Bulk-select export toolbar (Investments page)
   var exportForm = document.getElementById('investmentsExportForm');
   if (exportForm) {

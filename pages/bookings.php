@@ -64,11 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($postAction === 'record_payment') {
         $bookingId = (int) post('booking_id', 0);
-        $paymentType = post('payment_type', 'received');
-        if (!in_array($paymentType, ['received', 'returned'], true)) {
-            $paymentType = 'received';
-        }
-        $amount = (float) post('amount', 0);
+        $amountReceived = (float) post('amount_received', 0);
+        $amountReturned = (float) post('amount_returned', 0);
         $paymentDate = post('payment_date', date('Y-m-d'));
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $notes = post('notes', '');
@@ -76,44 +73,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bStmt = $pdo->prepare('SELECT b.*, cu.name AS customer_name FROM bookings b JOIN customers cu ON cu.id = b.customer_id WHERE b.id = ?');
         $bStmt->execute([$bookingId]);
         $booking = $bStmt->fetch();
-        if (!$booking || $amount <= 0) {
-            flash('error', 'Select a valid booking and enter a positive amount.');
+        if (!$booking || ($amountReceived <= 0 && $amountReturned <= 0)) {
+            flash('error', 'Select a valid booking and enter a received or returned amount.');
             redirect('pages/bookings.php');
         }
 
-        $categorySlug = $paymentType === 'received' ? 'booking' : 'booking_refund';
-        $categorySection = $paymentType === 'received' ? 'credit' : 'general';
-        $categoryId = category_id_by_slug($pdo, $categorySection, $categorySlug);
-        if (!$categoryId) {
-            flash('error', 'Booking category missing. Refresh once to migrate schema.');
-            redirect('pages/bookings.php');
-        }
-        $txnType = $paymentType === 'received' ? 'credit' : 'debit';
         $propertyLabel = $booking['property_type'] === 'plot'
             ? ('Plot ' . ($booking['plot_no'] ?: '—'))
             : ucwords(str_replace('_', ' ', $booking['property_type']));
-        $description = ($paymentType === 'received' ? 'Booking payment' : 'Booking refund') . ' — ' . $booking['customer_name'] . ' — ' . $propertyLabel;
         $userId = current_user()['id'] ?? null;
+        $projectId = $booking['project_id'] ? (int) $booking['project_id'] : null;
 
-        $txnId = create_transaction(
-            $pdo,
-            (int) $booking['company_id'],
-            (int) $categoryId,
-            $txnType,
-            $amount,
-            $paymentDate,
-            $booking['project_id'] ? (int) $booking['project_id'] : null,
-            $bankAccountId,
-            null,
-            null,
-            $description,
-            $userId ? (int) $userId : null
-        );
+        if ($amountReceived > 0) {
+            $categoryId = category_id_by_slug($pdo, 'credit', 'booking');
+            $description = 'Booking payment — ' . $booking['customer_name'] . ' — ' . $propertyLabel;
+            $txnId = create_transaction(
+                $pdo, (int) $booking['company_id'], (int) $categoryId, 'credit', $amountReceived, $paymentDate,
+                $projectId, $bankAccountId, null, null, $description, $userId ? (int) $userId : null
+            );
+            $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)')
+                ->execute([$bookingId, $txnId, 'received', $amountReceived, $paymentDate, $notes, $userId]);
+        }
 
-        $pStmt = $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)');
-        $pStmt->execute([$bookingId, $txnId, $paymentType, $amount, $paymentDate, $notes, $userId]);
+        if ($amountReturned > 0) {
+            $categoryId = category_id_by_slug($pdo, 'general', 'booking_refund');
+            $description = 'Booking refund — ' . $booking['customer_name'] . ' — ' . $propertyLabel;
+            $txnId = create_transaction(
+                $pdo, (int) $booking['company_id'], (int) $categoryId, 'debit', $amountReturned, $paymentDate,
+                $projectId, $bankAccountId, null, null, $description, $userId ? (int) $userId : null
+            );
+            $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)')
+                ->execute([$bookingId, $txnId, 'returned', $amountReturned, $paymentDate, $notes, $userId]);
+        }
 
-        audit_log($pdo, 'create', 'booking_payment', $bookingId, ucfirst($paymentType) . ' ' . money($amount) . ' for booking #' . $bookingId);
+        audit_log($pdo, 'create', 'booking_payment', $bookingId, 'Recorded payment for booking #' . $bookingId . ' — received ' . money($amountReceived) . ', returned ' . money($amountReturned));
         flash('success', 'Payment recorded.');
         redirect('pages/bookings.php');
     }
@@ -147,10 +140,39 @@ if ($action === 'add' || $action === 'edit') {
             redirect('pages/bookings.php');
         }
     }
-    $customers = $pdo->query('SELECT id, name, phone FROM customers ORDER BY name')->fetchAll();
+    $customers = $pdo->query('SELECT id, name, phone, email, address FROM customers ORDER BY name')->fetchAll();
     $preCustomerId = (int) ($booking['customer_id'] ?? 0);
     $preCompany = (int) ($booking['company_id'] ?? 0);
     $preProject = (int) ($booking['project_id'] ?? 0);
+
+    // Full customer details + their existing bookings, for the auto-fetch panel on selection
+    $customerDetailsMap = [];
+    foreach ($customers as $cust) {
+        $customerDetailsMap[(int) $cust['id']] = [
+            'phone' => $cust['phone'] ?: '',
+            'email' => $cust['email'] ?: '',
+            'address' => $cust['address'] ?: '',
+        ];
+    }
+    $customerBookingsMap = [];
+    $custBookingsStmt = $pdo->query(
+        "SELECT bk.id, bk.customer_id, bk.property_type, bk.plot_no, bk.total_amount,
+                COALESCE(SUM(CASE WHEN bp.payment_type='received' THEN bp.amount ELSE 0 END),0) AS received,
+                COALESCE(SUM(CASE WHEN bp.payment_type='returned' THEN bp.amount ELSE 0 END),0) AS returned
+         FROM bookings bk
+         LEFT JOIN booking_payments bp ON bp.booking_id = bk.id
+         GROUP BY bk.id"
+    );
+    foreach ($custBookingsStmt->fetchAll() as $bk) {
+        $bkLabel = $bk['property_type'] === 'plot'
+            ? ('Plot ' . ($bk['plot_no'] ?: '—'))
+            : ucwords(str_replace('_', ' ', $bk['property_type']));
+        $customerBookingsMap[(int) $bk['customer_id']][] = [
+            'id' => (int) $bk['id'],
+            'label' => $bkLabel,
+            'remaining' => round((float) $bk['total_amount'] - (float) $bk['received'] + (float) $bk['returned'], 2),
+        ];
+    }
 
     $pageTitle = $action === 'edit' ? 'Edit booking' : 'New booking';
     $pageSub = 'Customer and property details — payments are recorded separately from the bookings list.';
@@ -201,6 +223,16 @@ if ($action === 'add' || $action === 'edit') {
               <textarea name="customer_address"></textarea>
             </div>
           </div>
+        </div>
+        <div id="customer_info_panel" class="full" style="display:none">
+          <table class="detail-table">
+            <tbody>
+              <tr><td>Phone</td><td id="ci_phone">—</td></tr>
+              <tr><td>Email</td><td id="ci_email">—</td></tr>
+              <tr><td>Address</td><td id="ci_address">—</td></tr>
+            </tbody>
+          </table>
+          <div id="ci_bookings" style="margin-top:0.75rem"></div>
         </div>
         <div>
           <label>Project (optional)</label>
@@ -255,19 +287,80 @@ if ($action === 'add' || $action === 'edit') {
     </div>
     <script>
       (function () {
+        var CUSTOMER_DETAILS = <?= json_encode($customerDetailsMap) ?>;
+        var CUSTOMER_BOOKINGS = <?= json_encode($customerBookingsMap) ?>;
+        var bookingsUrl = <?= json_encode(base_url('pages/bookings.php')) ?>;
+
         var customerSelect = document.getElementById('customer_select');
         var newCustomerFields = document.getElementById('new_customer_fields');
         var newCustomerName = document.getElementById('new_customer_name');
+        var infoPanel = document.getElementById('customer_info_panel');
+        var ciPhone = document.getElementById('ci_phone');
+        var ciEmail = document.getElementById('ci_email');
+        var ciAddress = document.getElementById('ci_address');
+        var ciBookings = document.getElementById('ci_bookings');
         var propertyTypeEl = document.getElementById('property_type');
         var plotNoField = document.getElementById('plot_no_field');
         var areaEl = document.getElementById('area_sqft');
         var rateEl = document.getElementById('rate_per_sqft');
         var totalPreview = document.getElementById('total_amount_preview');
 
+        function money(n) {
+          return '₹' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function showCustomerInfo() {
+          var cid = customerSelect.value;
+          ciBookings.innerHTML = '';
+          if (!cid || !CUSTOMER_DETAILS[cid]) {
+            infoPanel.style.display = 'none';
+            return;
+          }
+          var d = CUSTOMER_DETAILS[cid];
+          ciPhone.textContent = d.phone || '—';
+          ciEmail.textContent = d.email || '—';
+          ciAddress.textContent = d.address || '—';
+
+          var bookings = CUSTOMER_BOOKINGS[cid] || [];
+          if (bookings.length) {
+            var label = document.createElement('div');
+            label.className = 'detail-label';
+            label.style.marginBottom = '0.4rem';
+            label.textContent = 'Existing bookings for this customer';
+            ciBookings.appendChild(label);
+
+            bookings.forEach(function (bk) {
+              var row = document.createElement('div');
+              row.style.cssText = 'display:flex;align-items:center;gap:0.6rem;margin-bottom:0.4rem;flex-wrap:wrap';
+
+              var span = document.createElement('span');
+              span.textContent = bk.label + ' — Remaining: ' + money(bk.remaining);
+              row.appendChild(span);
+
+              var link = document.createElement('a');
+              link.className = 'btn btn-outline btn-sm';
+              link.href = bookingsUrl + '?expand=' + bk.id;
+              link.textContent = 'Record transaction';
+              row.appendChild(link);
+
+              ciBookings.appendChild(row);
+            });
+          } else {
+            var empty = document.createElement('p');
+            empty.className = 'muted';
+            empty.style.margin = '0';
+            empty.textContent = 'No existing bookings for this customer yet.';
+            ciBookings.appendChild(empty);
+          }
+
+          infoPanel.style.display = '';
+        }
+
         function toggleCustomer() {
           var isNew = customerSelect.value === '';
           newCustomerFields.style.display = isNew ? '' : 'none';
           newCustomerName.required = isNew;
+          showCustomerInfo();
         }
         function togglePlotNo() {
           plotNoField.style.display = propertyTypeEl.value === 'plot' ? '' : 'none';
@@ -275,7 +368,7 @@ if ($action === 'add' || $action === 'edit') {
         function recalcTotal() {
           var area = parseFloat(areaEl.value) || 0;
           var rate = parseFloat(rateEl.value) || 0;
-          totalPreview.value = '₹' + (area * rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          totalPreview.value = money(area * rate);
         }
 
         customerSelect.addEventListener('change', toggleCustomer);
@@ -295,6 +388,7 @@ if ($action === 'add' || $action === 'edit') {
 $filterCompany = (int) get('company_id', 0);
 $filterStatus = get('status', '');
 $q = get('q', '');
+$expandId = (int) get('expand', 0);
 
 $pageTitle = 'Bookings';
 $pageSub = 'Plot, flat and row house bookings — customer info stays saved for future payments.';
@@ -416,7 +510,7 @@ require __DIR__ . '/../includes/header.php';
                 : ucwords(str_replace('_', ' ', $b['property_type']));
             $payments = $paymentsByBooking[(int) $b['id']] ?? [];
           ?>
-            <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
+            <tr class="row-clickable<?= $expandId === (int) $b['id'] ? ' row-expanded' : '' ?>" data-row-toggle="<?= e($detailId) ?>">
               <td>
                 <span class="row-caret">▸</span><strong><?= e($b['customer_name']) ?></strong>
                 <div class="muted" style="font-size:0.75rem"><?= e($b['customer_phone'] ?: '') ?></div>
@@ -431,7 +525,7 @@ require __DIR__ . '/../includes/header.php';
               <td class="num <?= $remaining > 0 ? 'text-danger' : 'text-success' ?>"><?= money($remaining) ?></td>
               <td><?= status_chip($b['status']) ?></td>
             </tr>
-            <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
+            <tr class="row-detail" id="<?= e($detailId) ?>" <?= $expandId === (int) $b['id'] ? '' : 'hidden' ?>>
               <td colspan="7">
                 <table class="detail-table" style="margin-bottom:1rem">
                   <tbody>
@@ -465,20 +559,17 @@ require __DIR__ . '/../includes/header.php';
                   <p class="muted" style="margin-bottom:1rem">No payments recorded yet.</p>
                 <?php endif; ?>
 
-                <form method="post" class="form-grid" style="padding:0">
+                <form method="post" class="form-grid record-payment-form" style="padding:0" data-remaining="<?= $remaining ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="record_payment">
                   <input type="hidden" name="booking_id" value="<?= (int) $b['id'] ?>">
                   <div>
-                    <label>Payment type</label>
-                    <select name="payment_type">
-                      <option value="received">Received</option>
-                      <option value="returned">Returned</option>
-                    </select>
+                    <label>Amount received (came from him) (₹)</label>
+                    <input type="number" step="0.01" min="0" name="amount_received" class="pay-amount-field" value="0">
                   </div>
                   <div>
-                    <label>Amount (₹)</label>
-                    <input type="number" step="0.01" min="0.01" name="amount" required>
+                    <label>Amount given back to him (₹)</label>
+                    <input type="number" step="0.01" min="0" name="amount_returned" class="pay-amount-field" value="0">
                   </div>
                   <div>
                     <label>Date</label>
@@ -491,6 +582,10 @@ require __DIR__ . '/../includes/header.php';
                   <div class="full">
                     <label>Notes</label>
                     <input type="text" name="notes">
+                  </div>
+                  <div class="full" style="font-size:0.85rem;font-weight:700">
+                    Remaining after this entry:
+                    <span class="remaining-preview <?= $remaining > 0 ? 'text-danger' : 'text-success' ?>"><?= money($remaining) ?></span>
                   </div>
                   <div class="full form-actions" style="justify-content:flex-start">
                     <button class="btn btn-primary btn-sm" type="submit">Record payment</button>
@@ -515,4 +610,12 @@ require __DIR__ . '/../includes/header.php';
     </div>
   <?php endif; ?>
 </div>
+<?php if ($expandId): ?>
+<script>
+  (function () {
+    var el = document.getElementById('booking-detail-<?= (int) $expandId ?>');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  })();
+</script>
+<?php endif; ?>
 <?php require __DIR__ . '/../includes/footer.php'; ?>
