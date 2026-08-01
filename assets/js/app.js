@@ -153,6 +153,17 @@
     });
   });
 
+  // Expandable table rows: click a row to reveal its detail row underneath
+  document.querySelectorAll('[data-row-toggle]').forEach(function (row) {
+    row.addEventListener('click', function (e) {
+      if (e.target.closest('a, button, input, select, textarea, label')) return;
+      var detail = document.getElementById(row.getAttribute('data-row-toggle'));
+      if (!detail) return;
+      detail.hidden = !detail.hidden;
+      row.classList.toggle('row-expanded', !detail.hidden);
+    });
+  });
+
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {
       if (!confirm(el.getAttribute('data-confirm') || 'Are you sure?')) {

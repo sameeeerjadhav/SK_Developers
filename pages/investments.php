@@ -4,30 +4,53 @@ require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
 $filterCompany = (int) get('company_id', 0);
-[$from, $to, $month, $year] = period_from_request();
+$filterFrom = get('from', '');
+$filterTo = get('to', '');
+[$fromMonth, $toMonth, $month, $year] = period_from_request();
+if ($month !== '' || $year !== '') {
+    if ($filterFrom === '' && $filterTo === '') {
+        $filterFrom = $fromMonth ?: '';
+        $filterTo = $toMonth ?: '';
+    }
+}
+
 $pageTitle = 'Investment';
 $pageSub = 'All investment credits and withdrawals across companies and projects.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=credit&slug=investment')) . '">+ Add investment</a>'
     . '<a class="btn btn-outline" href="' . e(base_url('pages/transactions.php?action=add&section=general&slug=investment_withdrawal')) . '">+ Add withdrawal</a>';
 
-$sql = "SELECT t.*, c.name AS company_name, p.name AS project_name
+$sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name,
+               ba.account_name, ba.bank_name, u.name AS created_by_name
         FROM transactions t
         JOIN categories cat ON cat.id = t.category_id
         JOIN companies c ON c.id = t.company_id
         LEFT JOIN projects p ON p.id = t.project_id
+        LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+        LEFT JOIN users u ON u.id = t.created_by
         WHERE ((cat.section = 'credit' AND cat.slug = 'investment') OR (cat.section = 'general' AND cat.slug = 'investment_withdrawal'))";
 $params = [];
 if ($filterCompany) {
     $sql .= ' AND t.company_id = ?';
     $params[] = $filterCompany;
 }
-apply_date_range($sql, $params, $from, $to);
-$sql .= ' ORDER BY t.txn_date DESC';
+apply_date_range($sql, $params, $filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null);
+$sql .= ' ORDER BY t.txn_date DESC, t.id DESC';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
 $totalIn = array_sum(array_map(fn($r) => $r['txn_type'] === 'credit' ? (float)$r['amount'] : 0, $rows));
 $totalOut = array_sum(array_map(fn($r) => $r['txn_type'] === 'debit' ? (float)$r['amount'] : 0, $rows));
+
+$attachmentsByTxn = [];
+if ($rows) {
+    $ids = array_map(fn($r) => (int) $r['id'], $rows);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $attStmt = $pdo->prepare("SELECT * FROM attachments WHERE transaction_id IN ($placeholders) ORDER BY id");
+    $attStmt->execute($ids);
+    foreach ($attStmt->fetchAll() as $att) {
+        $attachmentsByTxn[(int) $att['transaction_id']][] = $att;
+    }
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -60,6 +83,18 @@ require __DIR__ . '/../includes/header.php';
       <?php endforeach; ?>
     </select>
   </div>
+  <div class="field">
+    <label>From</label>
+    <input type="date" name="from" value="<?= e($filterFrom) ?>">
+  </div>
+  <div class="field">
+    <label>To</label>
+    <input type="date" name="to" value="<?= e($filterTo) ?>">
+  </div>
+  <div class="field" style="flex:0">
+    <label>&nbsp;</label>
+    <button class="btn btn-outline" type="submit">Filter</button>
+  </div>
 </form>
 <div class="card">
   <?php if (!$rows): ?>
@@ -69,15 +104,58 @@ require __DIR__ . '/../includes/header.php';
       <table class="data">
         <thead><tr><th>Date</th><th>Company</th><th>Project</th><th>Type</th><th>Note</th><th class="num">Amount</th></tr></thead>
         <tbody>
-          <?php foreach ($rows as $row): ?>
-            <tr>
-              <td><?= e($row['txn_date']) ?></td>
+          <?php foreach ($rows as $row):
+            $detailId = 'inv-detail-' . (int) $row['id'];
+            $atts = $attachmentsByTxn[(int) $row['id']] ?? [];
+          ?>
+            <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
+              <td><span class="row-caret">▸</span><?= e($row['txn_date']) ?></td>
               <td><?= e($row['company_name']) ?></td>
               <td><?= e($row['project_name'] ?? '—') ?></td>
               <td><?= txn_type_chip($row['txn_type']) ?></td>
               <td><?= e($row['description'] ?? '') ?></td>
               <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
                 <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
+              </td>
+            </tr>
+            <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
+              <td colspan="6">
+                <div class="detail-grid">
+                  <div>
+                    <div class="detail-label">Category</div>
+                    <div class="detail-value"><?= e($row['category_name']) ?></div>
+                  </div>
+                  <div>
+                    <div class="detail-label">Reference no.</div>
+                    <div class="detail-value"><?= e($row['reference_no'] ?: '—') ?></div>
+                  </div>
+                  <div>
+                    <div class="detail-label">Bank account</div>
+                    <div class="detail-value"><?= $row['account_name'] ? e($row['account_name'] . ' — ' . $row['bank_name']) : '—' ?></div>
+                  </div>
+                  <div>
+                    <div class="detail-label">Recorded by</div>
+                    <div class="detail-value"><?= e($row['created_by_name'] ?? '—') ?></div>
+                  </div>
+                  <div>
+                    <div class="detail-label">Added on</div>
+                    <div class="detail-value"><?= e(format_date($row['created_at'] ?? null)) ?></div>
+                  </div>
+                  <div class="full" style="grid-column:1/-1">
+                    <div class="detail-label">Description</div>
+                    <div class="detail-value" style="font-weight:500"><?= nl2br(e($row['description'] ?: '—')) ?></div>
+                  </div>
+                </div>
+                <?php if ($atts): ?>
+                  <div class="detail-attachments">
+                    <?php foreach ($atts as $att): ?>
+                      <a class="chip chip-primary" href="<?= e(base_url('pages/attachment.php?id=' . $att['id'])) ?>" target="_blank"><?= e($att['original_name']) ?></a>
+                    <?php endforeach; ?>
+                  </div>
+                <?php endif; ?>
+                <div class="form-actions" style="margin-top:0.9rem">
+                  <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit transaction</a>
+                </div>
               </td>
             </tr>
           <?php endforeach; ?>
