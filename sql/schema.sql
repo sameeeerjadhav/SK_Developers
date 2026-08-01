@@ -145,6 +145,7 @@ CREATE TABLE loan_borrowers (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   loan_id INT UNSIGNED NOT NULL,
   name VARCHAR(160) NOT NULL,
+  account_number VARCHAR(60) NULL,
   loan_amount DECIMAL(14,2) NULL,
   outstanding_amount DECIMAL(14,2) NULL,
   interest_charges DECIMAL(14,2) NULL,

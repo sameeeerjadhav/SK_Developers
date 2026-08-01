@@ -623,16 +623,17 @@ function refresh_loan_outstanding(PDO $pdo, int $loanId): void
 
 /**
  * Replaces a loan's borrower list. Pass an array of rows, each with keys:
- * name, loan_amount, outstanding_amount, interest_charges, start_date, end_date,
- * mortgage_noc_date, reconveyance_date. Rows with a blank name are skipped.
+ * name, account_number, loan_amount, outstanding_amount, interest_charges,
+ * start_date, end_date, mortgage_noc_date, reconveyance_date.
+ * Rows with a blank name are skipped.
  */
 function sync_loan_borrowers(PDO $pdo, int $loanId, array $borrowers): void
 {
     $pdo->prepare('DELETE FROM loan_borrowers WHERE loan_id = ?')->execute([$loanId]);
     $ins = $pdo->prepare(
         'INSERT INTO loan_borrowers
-        (loan_id, name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, mortgage_noc_date, reconveyance_date)
-        VALUES (?,?,?,?,?,?,?,?,?)'
+        (loan_id, name, account_number, loan_amount, outstanding_amount, interest_charges, start_date, end_date, mortgage_noc_date, reconveyance_date)
+        VALUES (?,?,?,?,?,?,?,?,?,?)'
     );
     $num = function ($v) {
         return $v !== '' && $v !== null ? (float) $v : null;
@@ -645,9 +646,11 @@ function sync_loan_borrowers(PDO $pdo, int $loanId, array $borrowers): void
         if ($name === '') {
             continue;
         }
+        $accountNumber = trim((string) ($b['account_number'] ?? ''));
         $ins->execute([
             $loanId,
             $name,
+            $accountNumber !== '' ? $accountNumber : null,
             $num($b['loan_amount'] ?? null),
             $num($b['outstanding_amount'] ?? null),
             $num($b['interest_charges'] ?? null),

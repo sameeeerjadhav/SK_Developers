@@ -195,46 +195,39 @@ require __DIR__ . '/../includes/header.php';
 <?php if ($borrowers): ?>
 <div class="card">
   <h2 class="card-title">Borrowers / guarantors</h2>
-  <div class="table-wrap">
-    <table class="data">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th class="num">Loan amount</th>
-          <th class="num">Outstanding</th>
-          <th class="num">Interest + charges</th>
-          <th>Start date</th>
-          <th>End date</th>
-          <th>Mortgage NOC</th>
-          <th>Reconveyance</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php foreach ($borrowers as $b): ?>
-          <tr>
-            <td><?= e($b['name']) ?></td>
-            <td class="num"><?= $b['loan_amount'] !== null ? money($b['loan_amount']) : '—' ?></td>
-            <td class="num"><?= $b['outstanding_amount'] !== null ? money($b['outstanding_amount']) : '—' ?></td>
-            <td class="num"><?= $b['interest_charges'] !== null ? money($b['interest_charges']) : '—' ?></td>
-            <td><?= $b['start_date'] ? e(format_date($b['start_date'])) : '—' ?></td>
-            <td><?= $b['end_date'] ? e(format_date($b['end_date'])) : '—' ?></td>
-            <td><?= $b['mortgage_noc_date'] ? e(format_date($b['mortgage_noc_date'])) : '—' ?></td>
-            <td><?= $b['reconveyance_date'] ? e(format_date($b['reconveyance_date'])) : '—' ?></td>
-          </tr>
-        <?php endforeach; ?>
-      </tbody>
-      <?php if ($borrowersTotal > 0 || $borrowersOutstandingTotal > 0): ?>
-      <tfoot>
-        <tr>
-          <td>Total</td>
-          <td class="num"><?= money($borrowersTotal) ?></td>
-          <td class="num"><?= money($borrowersOutstandingTotal) ?></td>
-          <td></td><td></td><td></td><td></td><td></td>
-        </tr>
-      </tfoot>
-      <?php endif; ?>
-    </table>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem">
+    <?php foreach ($borrowers as $b): ?>
+      <div class="company-card" style="cursor:default">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.6rem;margin-bottom:0.75rem">
+          <div>
+            <div class="kicker">Borrower</div>
+            <h3 style="margin:0.2rem 0 0"><?= e($b['name']) ?></h3>
+            <?php if ($b['account_number']): ?><div class="meta">A/C <?= e($b['account_number']) ?></div><?php endif; ?>
+          </div>
+          <div style="text-align:right">
+            <div class="muted" style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.04em">Loan amount</div>
+            <div style="font-size:1.1rem;font-weight:800;color:var(--primary-dark,#0f766e)"><?= $b['loan_amount'] !== null ? money($b['loan_amount']) : '—' ?></div>
+          </div>
+        </div>
+        <table class="detail-table">
+          <tbody>
+            <tr><td>Outstanding</td><td><?= $b['outstanding_amount'] !== null ? money($b['outstanding_amount']) : '—' ?></td></tr>
+            <tr><td>Interest + charges</td><td><?= $b['interest_charges'] !== null ? money($b['interest_charges']) : '—' ?></td></tr>
+            <tr><td>Start date</td><td><?= $b['start_date'] ? e(format_date($b['start_date'])) : '—' ?></td></tr>
+            <tr><td>End date</td><td><?= $b['end_date'] ? e(format_date($b['end_date'])) : '—' ?></td></tr>
+            <tr><td>Mortgage NOC</td><td><?= $b['mortgage_noc_date'] ? e(format_date($b['mortgage_noc_date'])) : '—' ?></td></tr>
+            <tr><td>Reconveyance</td><td><?= $b['reconveyance_date'] ? e(format_date($b['reconveyance_date'])) : '—' ?></td></tr>
+          </tbody>
+        </table>
+      </div>
+    <?php endforeach; ?>
   </div>
+  <?php if ($borrowersTotal > 0 || $borrowersOutstandingTotal > 0): ?>
+  <div class="grid-2" style="margin-top:1rem;gap:0.75rem">
+    <div class="highlight-box">Borrowers' total loan amount: <strong><?= money($borrowersTotal) ?></strong></div>
+    <div class="highlight-box" style="background:#fef2f2;border-color:#fecaca">Borrowers' total outstanding: <strong><?= money($borrowersOutstandingTotal) ?></strong></div>
+  </div>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 

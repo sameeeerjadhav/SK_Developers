@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($borrowerNames as $i => $bn) {
             $borrowersData[] = [
                 'name' => $bn,
+                'account_number' => $_POST['borrower_account_number'][$i] ?? '',
                 'loan_amount' => $_POST['borrower_loan_amount'][$i] ?? '',
                 'outstanding_amount' => $_POST['borrower_outstanding_amount'][$i] ?? '',
                 'interest_charges' => $_POST['borrower_interest_charges'][$i] ?? '',
@@ -97,7 +98,7 @@ if ($action === 'add' || $action === 'edit') {
         $bStmt->execute([$id]);
         $borrowers = $bStmt->fetchAll();
     }
-    $blankBorrower = ['name' => '', 'loan_amount' => '', 'outstanding_amount' => '', 'interest_charges' => '', 'start_date' => '', 'end_date' => '', 'mortgage_noc_date' => '', 'reconveyance_date' => ''];
+    $blankBorrower = ['name' => '', 'account_number' => '', 'loan_amount' => '', 'outstanding_amount' => '', 'interest_charges' => '', 'start_date' => '', 'end_date' => '', 'mortgage_noc_date' => '', 'reconveyance_date' => ''];
     if (!$borrowers) {
         $borrowers = [$blankBorrower];
     }
@@ -139,10 +140,14 @@ if ($action === 'add' || $action === 'edit') {
               <div style="display:flex;justify-content:flex-end;margin-bottom:0.4rem">
                 <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times; Remove person</button>
               </div>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem">
                 <div>
                   <label>Name</label>
                   <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames" value="<?= e($b['name'] ?? '') ?>">
+                </div>
+                <div>
+                  <label>Account number</label>
+                  <input type="text" name="borrower_account_number[]" value="<?= e($b['account_number'] ?? '') ?>">
                 </div>
                 <div>
                   <label>Loan amount (₹)</label>
@@ -187,10 +192,14 @@ if ($action === 'add' || $action === 'edit') {
               <div style="display:flex;justify-content:flex-end;margin-bottom:0.4rem">
                 <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times; Remove person</button>
               </div>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem">
                 <div>
                   <label>Name</label>
                   <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames">
+                </div>
+                <div>
+                  <label>Account number</label>
+                  <input type="text" name="borrower_account_number[]">
                 </div>
                 <div>
                   <label>Loan amount (₹)</label>

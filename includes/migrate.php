@@ -403,6 +403,7 @@ function ensure_v2_schema(PDO $pdo): void
         $pdo->exec('ALTER TABLE loan_borrowers DROP COLUMN phone');
     }
     foreach ([
+        'account_number' => 'ALTER TABLE loan_borrowers ADD COLUMN account_number VARCHAR(60) NULL AFTER name',
         'outstanding_amount' => 'ALTER TABLE loan_borrowers ADD COLUMN outstanding_amount DECIMAL(14,2) NULL AFTER loan_amount',
         'interest_charges' => 'ALTER TABLE loan_borrowers ADD COLUMN interest_charges DECIMAL(14,2) NULL AFTER outstanding_amount',
         'start_date' => 'ALTER TABLE loan_borrowers ADD COLUMN start_date DATE NULL AFTER interest_charges',
