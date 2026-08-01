@@ -125,6 +125,7 @@ function ensure_v2_schema(PDO $pdo): void
         'emi_amount' => 'ALTER TABLE bank_loans ADD COLUMN emi_amount DECIMAL(14,2) NULL AFTER interest_rate',
         'tenure_months' => 'ALTER TABLE bank_loans ADD COLUMN tenure_months INT UNSIGNED NULL AFTER emi_amount',
         'emi_start_date' => 'ALTER TABLE bank_loans ADD COLUMN emi_start_date DATE NULL AFTER tenure_months',
+        'interest_charges' => 'ALTER TABLE bank_loans ADD COLUMN interest_charges DECIMAL(14,2) NULL AFTER interest_rate',
     ] as $col => $sql) {
         if (!in_array($col, $cols, true)) {
             $pdo->exec($sql);

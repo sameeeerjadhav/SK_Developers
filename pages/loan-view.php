@@ -109,7 +109,7 @@ require __DIR__ . '/../includes/header.php';
 <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
   <div class="stat-card"><div class="stat-label">Loan amount</div><div class="stat-value"><?= money($loan['loan_amount']) ?></div></div>
   <div class="stat-card"><div class="stat-label">Outstanding</div><div class="stat-value"><?= money($loan['outstanding_amount']) ?></div><div class="stat-hint"><?= status_chip($loan['status']) ?></div></div>
-  <div class="stat-card"><div class="stat-label">Interest rate</div><div class="stat-value"><?= $loan['interest_rate'] !== null ? e((string) $loan['interest_rate']) . '%' : '—' ?></div></div>
+  <div class="stat-card"><div class="stat-label">Interest + charges</div><div class="stat-value"><?= $loan['interest_charges'] !== null ? money($loan['interest_charges']) : '—' ?></div></div>
   <div class="stat-card"><div class="stat-label">Total repaid</div><div class="stat-value"><?= money($totalRepaid) ?></div></div>
   <div class="stat-card"><div class="stat-label">Principal repaid</div><div class="stat-value text-success"><?= money($principalRepaid) ?></div></div>
   <div class="stat-card"><div class="stat-label">Interest repaid</div><div class="stat-value text-danger"><?= money($interestRepaid) ?></div></div>

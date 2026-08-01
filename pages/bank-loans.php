@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $lender = post('lender_name', '');
         $loanAmount = (float) post('loan_amount', 0);
         $outstanding = (float) post('outstanding_amount', 0);
-        $rate = post('interest_rate') !== '' ? (float) post('interest_rate') : null;
+        $interestCharges = post('interest_charges') !== '' ? (float) post('interest_charges') : null;
         $start = post('start_date') ?: null;
         $end = post('end_date') ?: null;
         $status = post('status', 'active');
@@ -28,13 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/bank-loans.php?action=add');
         }
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_rate=?, start_date=?, end_date=?, status=?, notes=? WHERE id=?');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $rate, $start, $end, $status, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, status=?, notes=? WHERE id=?');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $start, $end, $status, $notes, $editId]);
             flash('success', 'Bank loan updated.');
             redirect('pages/loan-view.php?id=' . $editId);
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_rate, start_date, end_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $rate, $start, $end, $status, $notes]);
+            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $start, $end, $status, $notes]);
             $newLoanId = (int) $pdo->lastInsertId();
 
             if ($postToLedger && $loanAmount > 0) {
@@ -80,7 +80,8 @@ if ($action === 'add' || $action === 'edit') {
         $row = $stmt->fetch();
     }
     $pageTitle = $action === 'edit' ? 'Edit bank loan' : 'Add bank loan';
-    $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
+    $pageActions = ($row ? '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $row['id'])) . '">Record repayment</a>' : '')
+        . '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
     $preCompany = (int) ($row['company_id'] ?? 0);
     require __DIR__ . '/../includes/header.php';
     ?>
@@ -116,8 +117,8 @@ if ($action === 'add' || $action === 'edit') {
           <input type="number" step="0.01" name="outstanding_amount" value="<?= e((string)($row['outstanding_amount'] ?? '0')) ?>">
         </div>
         <div>
-          <label>Interest rate %</label>
-          <input type="number" step="0.01" name="interest_rate" value="<?= e((string)($row['interest_rate'] ?? '')) ?>">
+          <label>Interest + other charges (₹)</label>
+          <input type="number" step="0.01" name="interest_charges" value="<?= e((string)($row['interest_charges'] ?? '')) ?>">
         </div>
         <div>
           <label>Status</label>
@@ -181,7 +182,7 @@ require __DIR__ . '/../includes/header.php';
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>Lender</th><th>Company</th><th>Project</th><th class="num">Loan</th><th class="num">Outstanding</th><th class="num">Interest %</th><th>Status</th><th class="actions">Actions</th></tr></thead>
+        <thead><tr><th>Lender</th><th>Company</th><th>Project</th><th class="num">Loan</th><th class="num">Outstanding</th><th class="num">Interest + Charges</th><th>Status</th><th class="actions">Actions</th></tr></thead>
         <tbody>
           <?php foreach ($loans as $l): ?>
             <tr>
@@ -190,7 +191,7 @@ require __DIR__ . '/../includes/header.php';
               <td><?= e($l['project_name'] ?? '—') ?></td>
               <td class="num"><?= money($l['loan_amount']) ?></td>
               <td class="num"><?= money($l['outstanding_amount']) ?></td>
-              <td class="num"><?= $l['interest_rate'] !== null ? e((string) $l['interest_rate']) . '%' : '—' ?></td>
+              <td class="num"><?= $l['interest_charges'] !== null ? money($l['interest_charges']) : '—' ?></td>
               <td><?= status_chip($l['status']) ?></td>
               <td class="actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'])) ?>">Repayments</a>

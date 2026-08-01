@@ -109,6 +109,7 @@ CREATE TABLE bank_loans (
   loan_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   outstanding_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   interest_rate DECIMAL(6,2) NULL,
+  interest_charges DECIMAL(14,2) NULL,
   emi_amount DECIMAL(14,2) NULL,
   tenure_months INT UNSIGNED NULL,
   emi_start_date DATE NULL,
