@@ -136,8 +136,10 @@ if ($action === 'add' || $action === 'edit') {
     $preProject = (int) ($txn['project_id'] ?? $filterProject ?: 0);
     $selectedCategory = (int) ($txn['category_id'] ?? $preCategory ?: 0);
 
-    // Categories grouped by section for the Section -> Category picker (avoids one long flat dropdown)
-    $catGroups = ['credit' => [], 'land_purchase' => [], 'expense' => [], 'general' => []];
+    // Categories for the Type (Credit/Debit) -> Category picker. Debit categories are grouped by
+    // their original section (Land Purchase / Expense / General) via <optgroup> so nothing is hidden.
+    $creditCats = [];
+    $debitGroups = ['land_purchase' => [], 'expense' => [], 'general' => []];
     $catGroupStmt = $pdo->query(
         "SELECT id, name, section FROM categories
          WHERE section IN ('credit','land_purchase','expense')
@@ -145,15 +147,21 @@ if ($action === 'add' || $action === 'edit') {
          ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order"
     );
     foreach ($catGroupStmt->fetchAll() as $c) {
-        $catGroups[$c['section']][] = ['id' => (int) $c['id'], 'name' => $c['name']];
+        if ($c['section'] === 'credit') {
+            $creditCats[] = ['id' => (int) $c['id'], 'name' => $c['name']];
+        } else {
+            $debitGroups[$c['section']][] = ['id' => (int) $c['id'], 'name' => $c['name']];
+        }
     }
-    $selectedSection = 'credit';
+    $catData = ['credit' => $creditCats, 'debit' => $debitGroups];
+    $debitGroupLabels = ['land_purchase' => 'Land Purchase', 'expense' => 'Expense', 'general' => 'General'];
+
+    $selectedType = 'credit';
     if ($selectedCategory) {
         $secStmt = $pdo->prepare('SELECT section FROM categories WHERE id = ?');
         $secStmt->execute([$selectedCategory]);
-        $selectedSection = $secStmt->fetchColumn() ?: 'credit';
+        $selectedType = ($secStmt->fetchColumn() === 'credit') ? 'credit' : 'debit';
     }
-    $sectionLabels = ['credit' => 'Credit', 'land_purchase' => 'Land Purchase', 'expense' => 'Expense', 'general' => 'General'];
 
     $pageTitle = $action === 'edit' ? 'Edit transaction' : 'Add transaction';
     $pageSub = 'Record credit (in) or debit (land / expense) against a company and project.';
@@ -184,11 +192,10 @@ if ($action === 'add' || $action === 'edit') {
           </select>
         </div>
         <div>
-          <label>Section</label>
-          <select id="txn_section">
-            <?php foreach ($sectionLabels as $secKey => $secLabel): ?>
-              <option value="<?= e($secKey) ?>" <?= $selectedSection === $secKey ? 'selected' : '' ?>><?= e($secLabel) ?></option>
-            <?php endforeach; ?>
+          <label>Type</label>
+          <select id="txn_type_select">
+            <option value="credit" <?= $selectedType === 'credit' ? 'selected' : '' ?>>Credit (money in)</option>
+            <option value="debit" <?= $selectedType === 'debit' ? 'selected' : '' ?>>Debit (money out)</option>
           </select>
         </div>
         <div class="full">
@@ -252,33 +259,51 @@ if ($action === 'add' || $action === 'edit') {
     </div>
     <script>
       (function () {
-        var CATEGORY_GROUPS = <?= json_encode($catGroups) ?>;
+        var CATEGORY_DATA = <?= json_encode($catData) ?>;
+        var DEBIT_GROUP_LABELS = <?= json_encode($debitGroupLabels) ?>;
         var preselectId = <?= (int) $selectedCategory ?>;
-        var sectionEl = document.getElementById('txn_section');
+        var typeEl = document.getElementById('txn_type_select');
         var categoryEl = document.getElementById('txn_category_id');
 
+        function addOption(parent, opt, selectId, state) {
+          var o = document.createElement('option');
+          o.value = String(opt.id);
+          o.textContent = opt.name;
+          if (selectId && Number(selectId) === opt.id) {
+            o.selected = true;
+            state.matched = true;
+          }
+          parent.appendChild(o);
+        }
+
         function populateCategories(selectId) {
-          var options = CATEGORY_GROUPS[sectionEl.value] || [];
           categoryEl.innerHTML = '';
           var placeholder = document.createElement('option');
           placeholder.value = '';
           placeholder.textContent = 'Select category';
           categoryEl.appendChild(placeholder);
-          var matched = false;
-          options.forEach(function (opt) {
-            var o = document.createElement('option');
-            o.value = String(opt.id);
-            o.textContent = opt.name;
-            if (selectId && Number(selectId) === opt.id) {
-              o.selected = true;
-              matched = true;
-            }
-            categoryEl.appendChild(o);
-          });
-          if (!matched) placeholder.selected = true;
+
+          var state = { matched: false };
+          if (typeEl.value === 'credit') {
+            (CATEGORY_DATA.credit || []).forEach(function (opt) {
+              addOption(categoryEl, opt, selectId, state);
+            });
+          } else {
+            Object.keys(CATEGORY_DATA.debit || {}).forEach(function (key) {
+              var items = CATEGORY_DATA.debit[key] || [];
+              if (!items.length) return;
+              var group = document.createElement('optgroup');
+              group.label = DEBIT_GROUP_LABELS[key] || key;
+              items.forEach(function (opt) {
+                addOption(group, opt, selectId, state);
+              });
+              categoryEl.appendChild(group);
+            });
+          }
+          if (!state.matched) placeholder.selected = true;
         }
 
-        sectionEl.addEventListener('change', function () { populateCategories(null); });
+        typeEl.addEventListener('change', function () { populateCategories(null); });
         populateCategories(preselectId);
       })();
     </script>
