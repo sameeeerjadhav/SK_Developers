@@ -3,7 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-const INVESTMENT_CATEGORY_SQL = "((cat.section = 'credit' AND cat.slug = 'investment') OR (cat.section = 'general' AND cat.slug = 'investment_withdrawal'))";
+const INVESTMENT_CATEGORY_SQL = "((cat.section = 'credit' AND cat.slug IN ('investment','daily_credit','monthly_credit')) OR (cat.section = 'general' AND cat.slug = 'investment_withdrawal'))";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'pdf'], true)) {
     verify_csrf();

@@ -498,7 +498,9 @@ function sum_by_category_slug(
 
 function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, ?string $to = null): array
 {
-    $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId, $from, $to);
+    $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId, $from, $to)
+        + sum_by_category_slug($pdo, 'credit', 'daily_credit', $companyId, $from, $to)
+        + sum_by_category_slug($pdo, 'credit', 'monthly_credit', $companyId, $from, $to);
     $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId, $from, $to);
     $creditBooking = sum_by_category_slug($pdo, 'credit', 'booking', $companyId, $from, $to);
     $expenses = sum_transactions($pdo, 'debit', $companyId, null, 'expense', $from, $to)

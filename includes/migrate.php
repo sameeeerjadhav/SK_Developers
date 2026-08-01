@@ -170,4 +170,17 @@ function ensure_v2_schema(PDO $pdo): void
     if (!$chkInvW->fetchColumn()) {
         $pdo->exec("INSERT INTO categories (section, name, slug, sort_order) VALUES ('general', 'Investment Withdrawal', 'investment_withdrawal', 50)");
     }
+
+    // Ensure Daily Credit / Monthly Credit investment categories exist
+    foreach ([
+        ['Daily Credit', 'daily_credit', 11],
+        ['Monthly Credit', 'monthly_credit', 12],
+    ] as [$catName, $catSlug, $catSort]) {
+        $chkCat = $pdo->prepare("SELECT id FROM categories WHERE section='credit' AND slug=? LIMIT 1");
+        $chkCat->execute([$catSlug]);
+        if (!$chkCat->fetchColumn()) {
+            $ins = $pdo->prepare("INSERT INTO categories (section, name, slug, sort_order) VALUES ('credit', ?, ?, ?)");
+            $ins->execute([$catName, $catSlug, $catSort]);
+        }
+    }
 }

@@ -208,6 +208,8 @@ INSERT INTO companies (id, name, slug, type, parent_id, description) VALUES
 INSERT INTO categories (section, name, slug, sort_order) VALUES
 -- Credit
 ('credit', 'Investment', 'investment', 10),
+('credit', 'Daily Credit', 'daily_credit', 11),
+('credit', 'Monthly Credit', 'monthly_credit', 12),
 ('credit', 'Partner', 'partner', 20),
 ('credit', 'Booking', 'booking', 30),
 ('credit', 'Bank Loan', 'bank_loan', 40),
