@@ -53,6 +53,9 @@ function render_repayment_loans(PDO $pdo, array $loans): void
         <tbody>
           <?php foreach ($loans as $loan):
             $loanDetailId = 'loan-detail-' . $loan['id'];
+            $borrowerStmt = $pdo->prepare('SELECT id, name FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+            $borrowerStmt->execute([$loan['id']]);
+            $loanBorrowers = $borrowerStmt->fetchAll();
           ?>
             <tr class="row-clickable" data-row-toggle="<?= e($loanDetailId) ?>">
               <td><span class="row-caret">▸</span><strong><?= e($loan['name']) ?></strong></td>
@@ -74,6 +77,7 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                         <th class="num">Principal</th>
                         <th class="num">Interest</th>
                         <th>Bank account</th>
+                        <th>Borrower</th>
                         <th>Notes</th>
                       </tr>
                     </thead>
@@ -88,10 +92,11 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                           <td class="num text-success"><?= money($r['principal_amount']) ?></td>
                           <td class="num text-danger"><?= money($r['interest_amount']) ?></td>
                           <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
+                          <td><?= e($r['borrower_name'] ?: '—') ?></td>
                           <td><?= e($r['notes'] ?: '') ?></td>
                         </tr>
                         <tr class="row-detail" id="<?= e($repayEditId) ?>" hidden>
-                          <td colspan="7">
+                          <td colspan="8">
                             <form method="post" class="form-grid repay-edit-form" style="padding:0">
                               <?= csrf_field() ?>
                               <input type="hidden" name="action" value="edit_repayment">
@@ -116,6 +121,17 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                                 <label>Bank account (optional)</label>
                                 <select name="bank_account_id"><?= bank_account_options($pdo, $loan['company_id'], (int) ($r['bank_account_id'] ?? 0)) ?></select>
                               </div>
+                              <?php if ($loanBorrowers): ?>
+                              <div>
+                                <label>Borrower</label>
+                                <select name="borrower_id">
+                                  <option value="">Whole loan / unspecified</option>
+                                  <?php foreach ($loanBorrowers as $lb): ?>
+                                    <option value="<?= (int) $lb['id'] ?>" <?= (int) ($r['borrower_id'] ?? 0) === (int) $lb['id'] ? 'selected' : '' ?>><?= e($lb['name']) ?></option>
+                                  <?php endforeach; ?>
+                                </select>
+                              </div>
+                              <?php endif; ?>
                               <div class="full">
                                 <label>Notes</label>
                                 <input type="text" name="notes" value="<?= e($r['notes'] ?? '') ?>">
@@ -162,11 +178,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
         $expStmt = $pdo->prepare(
-            "SELECT lr.*, bl.lender_name, c.name AS company_name, ba.account_name, ba.bank_name
+            "SELECT lr.*, bl.lender_name, c.name AS company_name, ba.account_name, ba.bank_name, lb.name AS borrower_name
              FROM loan_repayments lr
              JOIN bank_loans bl ON bl.id = lr.loan_id
              JOIN companies c ON c.id = bl.company_id
              LEFT JOIN bank_accounts ba ON ba.id = lr.bank_account_id
+             LEFT JOIN loan_borrowers lb ON lb.id = lr.borrower_id
              WHERE lr.id IN ($placeholders)
              ORDER BY lr.payment_date DESC, lr.id DESC"
         );
@@ -188,7 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Content-Disposition: attachment; filename="' . $filename . '"');
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Date', 'Lender', 'Company', 'Amount', 'Principal', 'Interest', 'Bank Account', 'Notes']);
+            fputcsv($out, ['Date', 'Lender', 'Company', 'Amount', 'Principal', 'Interest', 'Bank Account', 'Borrower', 'Notes']);
             foreach ($exportRows as $r) {
                 fputcsv($out, [
                     $r['payment_date'],
@@ -198,11 +215,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     number_format((float) $r['principal_amount'], 2, '.', ''),
                     number_format((float) $r['interest_amount'], 2, '.', ''),
                     $r['account_name'] ? ($r['account_name'] . ' - ' . $r['bank_name']) : '',
+                    $r['borrower_name'] ?? '',
                     $r['notes'] ?? '',
                 ]);
             }
             fputcsv($out, []);
-            fputcsv($out, ['', '', 'Total', number_format($exportTotal, 2, '.', ''), number_format($exportPrincipal, 2, '.', ''), number_format($exportInterest, 2, '.', ''), '', '']);
+            fputcsv($out, ['', '', 'Total', number_format($exportTotal, 2, '.', ''), number_format($exportPrincipal, 2, '.', ''), number_format($exportInterest, 2, '.', ''), '', '', '']);
             fclose($out);
             exit;
         }
@@ -255,6 +273,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   <th>Lender</th>
                   <th>Company</th>
                   <th>Bank account</th>
+                  <th>Borrower</th>
                   <th class="num">Amount (₹)</th>
                   <th class="num">Principal (₹)</th>
                   <th class="num">Interest (₹)</th>
@@ -268,6 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <td><?= e($r['lender_name']) ?></td>
                     <td><?= e($r['company_name']) ?></td>
                     <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
+                    <td><?= e($r['borrower_name'] ?: '—') ?></td>
                     <td class="num"><?= number_format((float) $r['amount'], 2) ?></td>
                     <td class="num"><?= number_format((float) $r['principal_amount'], 2) ?></td>
                     <td class="num"><?= number_format((float) $r['interest_amount'], 2) ?></td>
@@ -276,7 +296,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colspan="5">TOTAL</td>
+                  <td colspan="6">TOTAL</td>
                   <td class="num"><?= number_format($exportTotal, 2) ?></td>
                   <td class="num"><?= number_format($exportPrincipal, 2) ?></td>
                   <td class="num"><?= number_format($exportInterest, 2) ?></td>
@@ -301,6 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $interestAmount = (float) post('interest_amount', 0);
         $paymentDate = post('payment_date', date('Y-m-d'));
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $borrowerId = post('borrower_id') !== '' ? (int) post('borrower_id') : null;
         $notes = post('notes', '');
 
         $rStmt = $pdo->prepare('SELECT lr.*, bl.lender_name FROM loan_repayments lr JOIN bank_loans bl ON bl.id = lr.loan_id WHERE lr.id = ?');
@@ -315,20 +336,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $principalAmount = round($amount - $interestAmount, 2);
 
+        $borrowerName = null;
+        if ($borrowerId) {
+            $bnStmt = $pdo->prepare('SELECT name FROM loan_borrowers WHERE id = ? AND loan_id = ?');
+            $bnStmt->execute([$borrowerId, (int) $repayment['loan_id']]);
+            $borrowerName = $bnStmt->fetchColumn() ?: null;
+            if (!$borrowerName) {
+                $borrowerId = null;
+            }
+        }
+        $descSuffix = $borrowerName ? ' — ' . $borrowerName : '';
+
         if ($repayment['transaction_id']) {
             $pdo->prepare('UPDATE transactions SET amount=?, txn_date=?, bank_account_id=?, description=? WHERE id=?')
                 ->execute([
                     $amount, $paymentDate, $bankAccountId,
-                    'Loan repayment — ' . $repayment['lender_name'] . ' — P ' . money($principalAmount) . ' / I ' . money($interestAmount),
+                    'Loan repayment — ' . $repayment['lender_name'] . $descSuffix . ' — P ' . money($principalAmount) . ' / I ' . money($interestAmount),
                     $repayment['transaction_id'],
                 ]);
         }
 
-        $pdo->prepare('UPDATE loan_repayments SET amount=?, principal_amount=?, interest_amount=?, payment_date=?, bank_account_id=?, notes=? WHERE id=?')
-            ->execute([$amount, $principalAmount, $interestAmount, $paymentDate, $bankAccountId, $notes, $repayId]);
+        $pdo->prepare('UPDATE loan_repayments SET amount=?, principal_amount=?, interest_amount=?, payment_date=?, bank_account_id=?, borrower_id=?, notes=? WHERE id=?')
+            ->execute([$amount, $principalAmount, $interestAmount, $paymentDate, $bankAccountId, $borrowerId, $notes, $repayId]);
 
         refresh_loan_outstanding($pdo, (int) $repayment['loan_id']);
-        audit_log($pdo, 'update', 'loan_repayment', (int) $repayment['loan_id'], 'Edited repayment #' . $repayId . ' to ' . money($amount) . ' (P ' . money($principalAmount) . ' / I ' . money($interestAmount) . ')');
+        audit_log($pdo, 'update', 'loan_repayment', (int) $repayment['loan_id'], 'Edited repayment #' . $repayId . ' to ' . money($amount) . ' (P ' . money($principalAmount) . ' / I ' . money($interestAmount) . ')' . $descSuffix);
         flash('success', 'Repayment updated.');
         redirect('pages/loan-repayments.php');
     }
@@ -371,11 +403,12 @@ $pageTitle = 'Loan Repayments';
 $pageSub = 'Every repayment across all bank loans, grouped by lender.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/bank-loans.php')) . '">+ Go to loans</a>';
 
-$sql = "SELECT lr.*, bl.lender_name, bl.company_id, c.name AS company_name, ba.account_name, ba.bank_name
+$sql = "SELECT lr.*, bl.lender_name, bl.company_id, c.name AS company_name, ba.account_name, ba.bank_name, lb.name AS borrower_name
         FROM loan_repayments lr
         JOIN bank_loans bl ON bl.id = lr.loan_id
         JOIN companies c ON c.id = bl.company_id
         LEFT JOIN bank_accounts ba ON ba.id = lr.bank_account_id
+        LEFT JOIN loan_borrowers lb ON lb.id = lr.borrower_id
         WHERE 1=1";
 $params = [];
 if ($filterCompany) { $sql .= ' AND bl.company_id = ?'; $params[] = $filterCompany; }

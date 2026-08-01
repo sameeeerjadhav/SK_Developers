@@ -403,6 +403,15 @@ function ensure_v2_schema(PDO $pdo): void
         $pdo->exec('ALTER TABLE loan_borrowers DROP COLUMN phone');
     }
 
+    $repayCols = $pdo->query("SHOW COLUMNS FROM loan_repayments")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('borrower_id', $repayCols, true)) {
+        $pdo->exec('ALTER TABLE loan_repayments ADD COLUMN borrower_id INT UNSIGNED NULL AFTER transaction_id');
+        try {
+            $pdo->exec('ALTER TABLE loan_repayments ADD CONSTRAINT fk_lr_borrower FOREIGN KEY (borrower_id) REFERENCES loan_borrowers(id) ON DELETE SET NULL');
+        } catch (Throwable $e) {
+        }
+    }
+
     // ---- Project land-record fields ----
     $projectCols = $pdo->query("SHOW COLUMNS FROM projects")->fetchAll(PDO::FETCH_COLUMN);
     foreach ([

@@ -220,6 +220,7 @@ CREATE TABLE loan_repayments (
   payment_date DATE NOT NULL,
   bank_account_id INT UNSIGNED NULL,
   transaction_id INT UNSIGNED NULL,
+  borrower_id INT UNSIGNED NULL,
   notes TEXT NULL,
   created_by INT UNSIGNED NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -227,6 +228,7 @@ CREATE TABLE loan_repayments (
   CONSTRAINT fk_lr_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
   CONSTRAINT fk_lr_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
   CONSTRAINT fk_lr_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_lr_borrower FOREIGN KEY (borrower_id) REFERENCES loan_borrowers(id) ON DELETE SET NULL,
   INDEX idx_lr_loan (loan_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

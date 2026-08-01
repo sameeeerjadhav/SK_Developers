@@ -27,6 +27,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $editId = (int) post('id', 0);
         $borrowerNames = $_POST['borrower_name'] ?? [];
         $borrowerLoanAmounts = $_POST['borrower_loan_amount'] ?? [];
+        $borrowersTotalAmount = 0.0;
+        foreach ($borrowerNames as $i => $bn) {
+            if (trim((string) $bn) === '') {
+                continue;
+            }
+            $borrowersTotalAmount += isset($borrowerLoanAmounts[$i]) && $borrowerLoanAmounts[$i] !== '' ? (float) $borrowerLoanAmounts[$i] : 0.0;
+        }
+        if ($borrowersTotalAmount > 0) {
+            $loanAmount = $borrowersTotalAmount;
+        }
         if (!$companyId || $lender === '') {
             flash('error', 'Company and lender name are required.');
             redirect('pages/bank-loans.php?action=add');
@@ -92,6 +102,7 @@ if ($action === 'add' || $action === 'edit') {
     if (!$borrowers) {
         $borrowers = [['name' => '', 'loan_amount' => '']];
     }
+    $knownBorrowerNames = $pdo->query('SELECT DISTINCT name FROM loan_borrowers ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
     $pageTitle = $action === 'edit' ? 'Edit bank loan' : 'Add bank loan';
     $pageActions = ($row ? '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $row['id'])) . '">Record repayment</a>' : '')
         . '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
@@ -131,24 +142,30 @@ if ($action === 'add' || $action === 'edit') {
           <div data-repeat-container="borrowers">
             <?php foreach ($borrowers as $b): ?>
             <div class="repeat-row" style="display:grid;grid-template-columns:2fr 1fr 40px;gap:0.6rem;margin-bottom:0.6rem">
-              <input type="text" name="borrower_name[]" placeholder="Name" value="<?= e($b['name'] ?? '') ?>">
-              <input type="number" step="0.01" name="borrower_loan_amount[]" placeholder="0.00" value="<?= e((string) ($b['loan_amount'] ?? '')) ?>">
+              <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames" value="<?= e($b['name'] ?? '') ?>">
+              <input type="number" step="0.01" name="borrower_loan_amount[]" class="borrower-amount-field" placeholder="0.00" value="<?= e((string) ($b['loan_amount'] ?? '')) ?>">
               <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times;</button>
             </div>
             <?php endforeach; ?>
           </div>
           <button type="button" class="btn btn-outline btn-sm" data-repeat-add="borrowers" data-repeat-template="borrowerRowTemplate">+ Add person</button>
+          <datalist id="knownBorrowerNames">
+            <?php foreach ($knownBorrowerNames as $bn): ?>
+              <option value="<?= e($bn) ?>">
+            <?php endforeach; ?>
+          </datalist>
           <template id="borrowerRowTemplate">
             <div class="repeat-row" style="display:grid;grid-template-columns:2fr 1fr 40px;gap:0.6rem;margin-bottom:0.6rem">
-              <input type="text" name="borrower_name[]" placeholder="Name">
-              <input type="number" step="0.01" name="borrower_loan_amount[]" placeholder="0.00">
+              <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames">
+              <input type="number" step="0.01" name="borrower_loan_amount[]" class="borrower-amount-field" placeholder="0.00">
               <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times;</button>
             </div>
           </template>
         </div>
         <div>
           <label>Loan amount (₹)</label>
-          <input type="number" step="0.01" name="loan_amount" value="<?= e((string)($row['loan_amount'] ?? '0')) ?>">
+          <input type="number" step="0.01" name="loan_amount" id="loanAmountField" value="<?= e((string)($row['loan_amount'] ?? '0')) ?>">
+          <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">Auto-fills as the sum of all borrowers' loan amounts above (leave borrowers empty to enter it manually).</p>
         </div>
         <div>
           <label>Outstanding (₹)</label>
