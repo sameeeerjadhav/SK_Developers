@@ -587,70 +587,27 @@ function save_transaction_uploads(PDO $pdo, int $transactionId, array $files, ?i
     return $count;
 }
 
-function generate_loan_emis(PDO $pdo, int $loanId, float $emiAmount, int $tenureMonths, string $startDate): void
-{
-    $pdo->prepare('DELETE FROM loan_emis WHERE loan_id = ? AND status = "pending"')->execute([$loanId]);
-
-    $loanStmt = $pdo->prepare('SELECT loan_amount, interest_rate, outstanding_amount FROM bank_loans WHERE id = ?');
-    $loanStmt->execute([$loanId]);
-    $loan = $loanStmt->fetch() ?: [];
-    $balance = (float) ($loan['outstanding_amount'] ?? $loan['loan_amount'] ?? 0);
-    if ($balance <= 0) {
-        $balance = (float) ($loan['loan_amount'] ?? 0);
-    }
-    $annualRate = (float) ($loan['interest_rate'] ?? 0);
-    $monthlyRate = $annualRate > 0 ? ($annualRate / 12 / 100) : 0.0;
-
-    $existing = $pdo->prepare('SELECT MAX(installment_no) FROM loan_emis WHERE loan_id = ?');
-    $existing->execute([$loanId]);
-    $startNo = (int) $existing->fetchColumn() + 1;
-
-    $date = new DateTime($startDate);
-    $remainingTenure = $tenureMonths - ($startNo - 1);
-    if ($remainingTenure < 1) {
-        $remainingTenure = $tenureMonths;
-        $startNo = 1;
-    }
-
-    for ($n = 0; $n < $remainingTenure; $n++) {
-        $installmentNo = $startNo + $n;
-        $interestPart = $monthlyRate > 0 ? round($balance * $monthlyRate, 2) : 0.0;
-        $principalPart = round($emiAmount - $interestPart, 2);
-        if ($principalPart < 0) {
-            $interestPart = $emiAmount;
-            $principalPart = 0.0;
-        }
-        // Last installment: clear remaining principal
-        if ($n === $remainingTenure - 1 || $principalPart > $balance) {
-            $principalPart = round($balance, 2);
-            $emiThis = round($principalPart + $interestPart, 2);
-        } else {
-            $emiThis = $emiAmount;
-        }
-        $stmt = $pdo->prepare(
-            'INSERT INTO loan_emis (loan_id, installment_no, due_date, amount, principal_amount, interest_amount, status)
-             VALUES (?,?,?,?,?,?, "pending")'
-        );
-        $stmt->execute([$loanId, $installmentNo, $date->format('Y-m-d'), $emiThis, $principalPart, $interestPart]);
-        $balance = max(0, round($balance - $principalPart, 2));
-        $date->modify('+1 month');
-    }
-}
-
 function refresh_loan_outstanding(PDO $pdo, int $loanId): void
 {
     $loan = $pdo->prepare('SELECT loan_amount FROM bank_loans WHERE id = ?');
     $loan->execute([$loanId]);
     $loanAmount = (float) $loan->fetchColumn();
+
     $paid = $pdo->prepare('SELECT COALESCE(SUM(principal_paid),0) FROM loan_emis WHERE loan_id = ?');
     $paid->execute([$loanId]);
-    $principalPaid = (float) $paid->fetchColumn();
-    // Fallback if older payments have no principal split
-    if ($principalPaid <= 0) {
+    $emiPrincipal = (float) $paid->fetchColumn();
+    // Fallback if older EMI payments have no principal split
+    if ($emiPrincipal <= 0) {
         $paid2 = $pdo->prepare('SELECT COALESCE(SUM(paid_amount),0) FROM loan_emis WHERE loan_id = ?');
         $paid2->execute([$loanId]);
-        $principalPaid = (float) $paid2->fetchColumn();
+        $emiPrincipal = (float) $paid2->fetchColumn();
     }
+
+    $repayPaid = $pdo->prepare('SELECT COALESCE(SUM(principal_amount),0) FROM loan_repayments WHERE loan_id = ?');
+    $repayPaid->execute([$loanId]);
+    $repayPrincipal = (float) $repayPaid->fetchColumn();
+
+    $principalPaid = $emiPrincipal + $repayPrincipal;
     $outstanding = max(0, $loanAmount - $principalPaid);
     $status = $outstanding <= 0.01 ? 'closed' : 'active';
     $pdo->prepare('UPDATE bank_loans SET outstanding_amount = ?, status = ? WHERE id = ?')

@@ -179,6 +179,25 @@ CREATE TABLE loan_emis (
   INDEX idx_emi_due (due_date, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE loan_repayments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  loan_id INT UNSIGNED NOT NULL,
+  amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  principal_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  interest_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  payment_date DATE NOT NULL,
+  bank_account_id INT UNSIGNED NULL,
+  transaction_id INT UNSIGNED NULL,
+  notes TEXT NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_lr_loan FOREIGN KEY (loan_id) REFERENCES bank_loans(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lr_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  CONSTRAINT fk_lr_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+  CONSTRAINT fk_lr_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_lr_loan (loan_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE attachments (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   transaction_id INT UNSIGNED NOT NULL,
@@ -292,6 +311,7 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 ('expense', 'Commission', 'commission', 50),
 ('expense', 'Labour Charges', 'labour_charges', 60),
 ('expense', 'Interest Paid', 'interest_paid', 70),
+('expense', 'Loan Repayment', 'loan_repayment', 75),
 -- General topic helpers
 ('general', 'Investment', 'investment', 10),
 ('general', 'Deposit', 'deposit', 20),

@@ -22,97 +22,83 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $postAction = post('action', '');
 
-    if ($postAction === 'generate_schedule') {
-        $emi = (float) ($loan['emi_amount'] ?? 0);
-        $tenure = (int) ($loan['tenure_months'] ?? 0);
-        $start = $loan['emi_start_date'] ?: ($loan['start_date'] ?: date('Y-m-d'));
-        if ($emi <= 0 || $tenure <= 0) {
-            flash('error', 'Set EMI amount and tenure months on the loan first.');
-            redirect('pages/bank-loans.php?action=edit&id=' . $id);
-        }
-        generate_loan_emis($pdo, $id, $emi, $tenure, $start);
-        audit_log($pdo, 'create', 'loan_emi', $id, 'Generated EMI schedule');
-        flash('success', 'EMI schedule generated with principal / interest split.');
-        redirect('pages/loan-view.php?id=' . $id);
-    }
-
-    if ($postAction === 'pay_emi') {
-        $emiId = (int) post('emi_id', 0);
-        $paidAmount = (float) post('paid_amount', 0);
-        $principalPart = post('principal_paid') !== '' ? (float) post('principal_paid') : null;
-        $interestPart = post('interest_paid') !== '' ? (float) post('interest_paid') : null;
-        $paidDate = post('paid_date', date('Y-m-d'));
+    if ($postAction === 'record_repayment') {
+        $amount = (float) post('amount', 0);
+        $interestAmount = (float) post('interest_amount', 0);
+        $paymentDate = post('payment_date', date('Y-m-d'));
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $notes = post('notes', '');
         $postLedger = !empty($_POST['post_to_ledger']);
 
-        $emiStmt = $pdo->prepare('SELECT * FROM loan_emis WHERE id = ? AND loan_id = ?');
-        $emiStmt->execute([$emiId, $id]);
-        $emi = $emiStmt->fetch();
-        if (!$emi || $paidAmount <= 0) {
-            flash('error', 'Invalid EMI payment.');
+        if ($amount <= 0) {
+            flash('error', 'Enter a positive repayment amount.');
             redirect('pages/loan-view.php?id=' . $id);
         }
-
-        $remainPrincipal = max(0, (float) $emi['principal_amount'] - (float) $emi['principal_paid']);
-        $remainInterest = max(0, (float) $emi['interest_amount'] - (float) $emi['interest_paid']);
-        if ($principalPart === null && $interestPart === null) {
-            // Default: interest first, then principal
-            $interestPart = min($paidAmount, $remainInterest);
-            $principalPart = min($paidAmount - $interestPart, $remainPrincipal);
-            $leftover = $paidAmount - $interestPart - $principalPart;
-            if ($leftover > 0) {
-                $principalPart += $leftover;
-            }
-        } else {
-            $principalPart = (float) ($principalPart ?? 0);
-            $interestPart = (float) ($interestPart ?? max(0, $paidAmount - $principalPart));
+        if ($interestAmount > $amount) {
+            $interestAmount = $amount;
         }
+        $principalAmount = round($amount - $interestAmount, 2);
 
         $txnId = null;
         if ($postLedger) {
-            $catId = category_id_by_slug($pdo, 'expense', 'interest_paid')
-                ?: category_id_by_slug($pdo, 'expense', 'office_expenses');
+            $catId = category_id_by_slug($pdo, 'expense', 'loan_repayment');
             if ($catId) {
                 $txnId = create_transaction(
                     $pdo,
                     (int) $loan['company_id'],
                     $catId,
                     'debit',
-                    $paidAmount,
-                    $paidDate,
+                    $amount,
+                    $paymentDate,
                     $loan['project_id'] ? (int) $loan['project_id'] : null,
                     $bankAccountId,
                     null,
-                    'EMI-' . $emi['installment_no'],
-                    'EMI #' . $emi['installment_no'] . ' — P ' . money($principalPart) . ' / I ' . money($interestPart) . ' — ' . $loan['lender_name'],
+                    null,
+                    'Loan repayment — ' . $loan['lender_name'] . ' — P ' . money($principalAmount) . ' / I ' . money($interestAmount),
                     current_user()['id'] ?? null
                 );
             }
         }
 
-        $newPaid = (float) $emi['paid_amount'] + $paidAmount;
-        $newPrincipal = (float) $emi['principal_paid'] + $principalPart;
-        $newInterest = (float) $emi['interest_paid'] + $interestPart;
-        $status = $newPaid + 0.009 >= (float) $emi['amount'] ? 'paid' : 'partial';
-        $pdo->prepare('UPDATE loan_emis SET paid_amount=?, principal_paid=?, interest_paid=?, paid_date=?, status=?, transaction_id=COALESCE(?, transaction_id) WHERE id=?')
-            ->execute([$newPaid, $newPrincipal, $newInterest, $paidDate, $status, $txnId, $emiId]);
+        $userId = current_user()['id'] ?? null;
+        $pdo->prepare('INSERT INTO loan_repayments (loan_id, amount, principal_amount, interest_amount, payment_date, bank_account_id, transaction_id, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?)')
+            ->execute([$id, $amount, $principalAmount, $interestAmount, $paymentDate, $bankAccountId, $txnId, $notes, $userId]);
+
         refresh_loan_outstanding($pdo, $id);
-        audit_log($pdo, 'update', 'loan_emi', $emiId, 'Paid EMI #' . $emi['installment_no'] . ' ' . money($paidAmount) . ' (P ' . money($principalPart) . ' / I ' . money($interestPart) . ')');
-        flash('success', 'EMI payment recorded.');
+        audit_log($pdo, 'create', 'loan_repayment', $id, 'Recorded repayment ' . money($amount) . ' (P ' . money($principalAmount) . ' / I ' . money($interestAmount) . ') for ' . $loan['lender_name']);
+        flash('success', 'Repayment recorded.');
+        redirect('pages/loan-view.php?id=' . $id);
+    }
+
+    if ($postAction === 'delete_repayment') {
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete repayments.');
+            redirect('pages/loan-view.php?id=' . $id);
+        }
+        $repayId = (int) post('repayment_id', 0);
+        $rStmt = $pdo->prepare('SELECT transaction_id FROM loan_repayments WHERE id = ? AND loan_id = ?');
+        $rStmt->execute([$repayId, $id]);
+        $txnId = $rStmt->fetchColumn();
+        $pdo->prepare('DELETE FROM loan_repayments WHERE id = ?')->execute([$repayId]);
+        if ($txnId) {
+            $pdo->prepare('DELETE FROM transactions WHERE id = ?')->execute([(int) $txnId]);
+        }
+        refresh_loan_outstanding($pdo, $id);
+        audit_log($pdo, 'delete', 'loan_repayment', $id, 'Deleted repayment #' . $repayId . ' for ' . $loan['lender_name']);
+        flash('success', 'Repayment deleted.');
         redirect('pages/loan-view.php?id=' . $id);
     }
 }
 
-$emis = $pdo->prepare('SELECT * FROM loan_emis WHERE loan_id = ? ORDER BY installment_no');
-$emis->execute([$id]);
-$schedule = $emis->fetchAll();
-$paidTotal = array_sum(array_map(fn($e) => (float)$e['paid_amount'], $schedule));
-$principalPaidTotal = array_sum(array_map(fn($e) => (float)$e['principal_paid'], $schedule));
-$interestPaidTotal = array_sum(array_map(fn($e) => (float)$e['interest_paid'], $schedule));
-$pendingCount = count(array_filter($schedule, fn($e) => $e['status'] === 'pending' || $e['status'] === 'partial'));
+$repayStmt = $pdo->prepare('SELECT lr.*, ba.account_name, ba.bank_name FROM loan_repayments lr LEFT JOIN bank_accounts ba ON ba.id = lr.bank_account_id WHERE lr.loan_id = ? ORDER BY lr.payment_date DESC, lr.id DESC');
+$repayStmt->execute([$id]);
+$repayments = $repayStmt->fetchAll();
+$totalRepaid = array_sum(array_map(fn($r) => (float) $r['amount'], $repayments));
+$principalRepaid = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $repayments));
+$interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $repayments));
 
 $pageTitle = $loan['lender_name'];
-$pageSub = 'Loan EMI · principal vs interest · ' . $loan['company_name'];
+$pageSub = 'Loan repayments — ' . $loan['company_name'] . '. Amounts vary, so each repayment is entered manually.';
 $pageActions =
     '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php?action=edit&id=' . $id)) . '">Edit loan</a>' .
     '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
@@ -122,92 +108,132 @@ require __DIR__ . '/../includes/header.php';
 
 <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
   <div class="stat-card"><div class="stat-label">Loan amount</div><div class="stat-value"><?= money($loan['loan_amount']) ?></div></div>
-  <div class="stat-card"><div class="stat-label">Outstanding</div><div class="stat-value"><?= money($loan['outstanding_amount']) ?></div></div>
-  <div class="stat-card"><div class="stat-label">EMI</div><div class="stat-value"><?= $loan['emi_amount'] !== null ? money($loan['emi_amount']) : '—' ?></div><div class="stat-hint"><?= (int)($loan['tenure_months'] ?? 0) ?> mo · <?= e((string)($loan['interest_rate'] ?? '0')) ?>%</div></div>
-  <div class="stat-card"><div class="stat-label">Principal paid</div><div class="stat-value money-in"><?= money($principalPaidTotal) ?></div></div>
-  <div class="stat-card"><div class="stat-label">Interest paid</div><div class="stat-value money-out"><?= money($interestPaidTotal) ?></div></div>
-  <div class="stat-card"><div class="stat-label">Paid / open</div><div class="stat-value"><?= money($paidTotal) ?></div><div class="stat-hint"><?= $pendingCount ?> EMI(s) open · <?= status_chip($loan['status']) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Outstanding</div><div class="stat-value"><?= money($loan['outstanding_amount']) ?></div><div class="stat-hint"><?= status_chip($loan['status']) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Interest rate</div><div class="stat-value"><?= $loan['interest_rate'] !== null ? e((string) $loan['interest_rate']) . '%' : '—' ?></div></div>
+  <div class="stat-card"><div class="stat-label">Total repaid</div><div class="stat-value"><?= money($totalRepaid) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Principal repaid</div><div class="stat-value text-success"><?= money($principalRepaid) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Interest repaid</div><div class="stat-value text-danger"><?= money($interestRepaid) ?></div></div>
 </div>
 
-<?php if (!$schedule): ?>
-  <div class="card">
-    <div class="empty">
-      <strong>No EMI schedule yet</strong>
-      <p>Generate installments from EMI amount + tenure. Interest rate (if set) splits each EMI into principal and interest.</p>
-      <form method="post" style="margin-top:1rem">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="generate_schedule">
-        <button class="btn btn-primary" type="submit">Generate EMI schedule</button>
-      </form>
-    </div>
+<div class="card">
+  <div class="card-head">
+    <h2 class="card-title">Record a repayment</h2>
   </div>
-<?php else: ?>
-  <div class="card">
-    <div class="card-head">
-      <h2 class="card-title">EMI schedule</h2>
-      <form method="post" onsubmit="return confirm('Regenerate pending EMIs? Paid ones stay.')">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="generate_schedule">
-        <button class="btn btn-outline btn-sm" type="submit">Regenerate pending</button>
-      </form>
+  <form method="post" class="form-grid" id="repaymentForm">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="record_repayment">
+    <div>
+      <label>Amount paid (₹)</label>
+      <input type="number" step="0.01" min="0.01" name="amount" id="repay_amount" required>
     </div>
+    <div>
+      <label>Of which interest (₹, optional)</label>
+      <input type="number" step="0.01" min="0" name="interest_amount" id="repay_interest" value="0">
+    </div>
+    <div>
+      <label>Principal portion (₹)</label>
+      <input type="text" id="repay_principal_preview" readonly value="₹0.00">
+    </div>
+    <div>
+      <label>Date</label>
+      <input type="date" name="payment_date" required value="<?= e(date('Y-m-d')) ?>">
+    </div>
+    <div>
+      <label>Bank account (optional)</label>
+      <select name="bank_account_id"><?= bank_account_options($pdo, (int) $loan['company_id']) ?></select>
+    </div>
+    <div class="full">
+      <label>Notes</label>
+      <input type="text" name="notes" placeholder="Reference no., cheque no., etc.">
+    </div>
+    <div class="full highlight-box">
+      <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0;font-weight:600;color:var(--text)">
+        <input type="checkbox" name="post_to_ledger" value="1" checked style="width:auto;margin-top:0.2rem">
+        <span>Also post this as a <strong>Debit → Loan Repayment</strong> transaction (updates bank balance).</span>
+      </label>
+    </div>
+    <div class="full form-actions">
+      <button class="btn btn-primary" type="submit">Record repayment</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2 class="card-title">Repayment history</h2>
+    <span class="muted" style="font-size:0.8rem"><?= count($repayments) ?> entries</span>
+  </div>
+  <?php if (!$repayments): ?>
+    <div class="empty"><strong>No repayments recorded yet</strong><p>Use the form above whenever a repayment is made — amounts don't need to be fixed or scheduled.</p></div>
+  <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Due</th>
-            <th class="num">EMI</th>
+            <th>Date</th>
+            <th class="num">Amount</th>
             <th class="num">Principal</th>
             <th class="num">Interest</th>
-            <th class="num">Paid</th>
-            <th>Status</th>
-            <th class="actions">Record payment</th>
+            <th>Bank account</th>
+            <th>Notes</th>
+            <th class="actions">Actions</th>
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($schedule as $emi): ?>
+          <?php foreach ($repayments as $r): ?>
             <tr>
-              <td><?= (int)$emi['installment_no'] ?></td>
-              <td><?= e(format_date($emi['due_date'])) ?></td>
-              <td class="num"><?= money($emi['amount']) ?></td>
-              <td class="num"><?= money($emi['principal_amount'] ?? 0) ?><div class="muted" style="font-size:0.7rem">paid <?= money($emi['principal_paid'] ?? 0) ?></div></td>
-              <td class="num"><?= money($emi['interest_amount'] ?? 0) ?><div class="muted" style="font-size:0.7rem">paid <?= money($emi['interest_paid'] ?? 0) ?></div></td>
-              <td class="num"><?= money($emi['paid_amount']) ?></td>
-              <td><?= status_chip($emi['status']) ?></td>
+              <td><?= e(format_date($r['payment_date'])) ?></td>
+              <td class="num"><?= money($r['amount']) ?></td>
+              <td class="num text-success"><?= money($r['principal_amount']) ?></td>
+              <td class="num text-danger"><?= money($r['interest_amount']) ?></td>
+              <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
+              <td><?= e($r['notes'] ?: '') ?></td>
               <td class="actions">
-                <?php if ($emi['status'] !== 'paid'): ?>
-                  <?php
-                    $dueLeft = max(0, (float)$emi['amount'] - (float)$emi['paid_amount']);
-                    $pLeft = max(0, (float)($emi['principal_amount'] ?? 0) - (float)($emi['principal_paid'] ?? 0));
-                    $iLeft = max(0, (float)($emi['interest_amount'] ?? 0) - (float)($emi['interest_paid'] ?? 0));
-                  ?>
-                  <form method="post" class="emi-pay-form" style="display:flex;gap:0.35rem;flex-wrap:wrap;justify-content:flex-end;align-items:center">
-                    <?= csrf_field() ?>
-                    <input type="hidden" name="action" value="pay_emi">
-                    <input type="hidden" name="emi_id" value="<?= (int)$emi['id'] ?>">
-                    <input type="number" step="0.01" name="paid_amount" title="Total" value="<?= e((string)$dueLeft) ?>" style="width:100px" required>
-                    <input type="number" step="0.01" name="principal_paid" title="Principal" placeholder="P" value="<?= e((string)$pLeft) ?>" style="width:90px">
-                    <input type="number" step="0.01" name="interest_paid" title="Interest" placeholder="I" value="<?= e((string)$iLeft) ?>" style="width:90px">
-                    <input type="date" name="paid_date" value="<?= e(date('Y-m-d')) ?>" style="width:140px">
-                    <select name="bank_account_id" style="width:140px">
-                      <?= bank_account_options($pdo, (int)$loan['company_id']) ?>
-                    </select>
-                    <label style="font-size:0.72rem;display:flex;gap:0.25rem;align-items:center;margin:0;font-weight:600">
-                      <input type="checkbox" name="post_to_ledger" value="1" checked style="width:auto"> Ledger
-                    </label>
-                    <button class="btn btn-primary btn-sm" type="submit">Pay</button>
-                  </form>
-                <?php else: ?>
-                  <span class="muted"><?= e(format_date($emi['paid_date'] ?? '')) ?></span>
+                <?php if (can_delete()): ?>
+                <form method="post" style="display:inline">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="action" value="delete_repayment">
+                  <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry?">Delete</button>
+                </form>
                 <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>
         </tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td class="num"><?= money($totalRepaid) ?></td>
+            <td class="num"><?= money($principalRepaid) ?></td>
+            <td class="num"><?= money($interestRepaid) ?></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </tfoot>
       </table>
     </div>
-  </div>
-<?php endif; ?>
+  <?php endif; ?>
+</div>
+
+<script>
+  (function () {
+    var amountEl = document.getElementById('repay_amount');
+    var interestEl = document.getElementById('repay_interest');
+    var previewEl = document.getElementById('repay_principal_preview');
+
+    function recalc() {
+      var amount = parseFloat(amountEl.value) || 0;
+      var interest = parseFloat(interestEl.value) || 0;
+      if (interest > amount) interest = amount;
+      var principal = Math.max(0, amount - interest);
+      previewEl.value = '₹' + principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    amountEl.addEventListener('input', recalc);
+    interestEl.addEventListener('input', recalc);
+  })();
+</script>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>
