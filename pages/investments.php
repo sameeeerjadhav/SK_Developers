@@ -121,31 +121,34 @@ require __DIR__ . '/../includes/header.php';
             <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
               <td colspan="6">
                 <div class="detail-grid">
-                  <div>
-                    <div class="detail-label">Category</div>
-                    <div class="detail-value"><?= e($row['category_name']) ?></div>
-                  </div>
-                  <div>
-                    <div class="detail-label">Reference no.</div>
-                    <div class="detail-value"><?= e($row['reference_no'] ?: '—') ?></div>
-                  </div>
-                  <div>
-                    <div class="detail-label">Bank account</div>
-                    <div class="detail-value"><?= $row['account_name'] ? e($row['account_name'] . ' — ' . $row['bank_name']) : '—' ?></div>
-                  </div>
-                  <div>
-                    <div class="detail-label">Recorded by</div>
-                    <div class="detail-value"><?= e($row['created_by_name'] ?? '—') ?></div>
-                  </div>
-                  <div>
-                    <div class="detail-label">Added on</div>
-                    <div class="detail-value"><?= e(format_date($row['created_at'] ?? null)) ?></div>
-                  </div>
-                  <div class="full" style="grid-column:1/-1">
-                    <div class="detail-label">Description</div>
-                    <div class="detail-value" style="font-weight:500"><?= nl2br(e($row['description'] ?: '—')) ?></div>
-                  </div>
-                </div>
+                <table class="detail-table">
+                  <tbody>
+                    <tr>
+                      <td>Category</td>
+                      <td><?= e($row['category_name']) ?></td>
+                    </tr>
+                    <tr>
+                      <td>Reference no.</td>
+                      <td><?= e($row['reference_no'] ?: '—') ?></td>
+                    </tr>
+                    <tr>
+                      <td>Bank account</td>
+                      <td><?= $row['account_name'] ? e($row['account_name'] . ' — ' . $row['bank_name']) : '—' ?></td>
+                    </tr>
+                    <tr>
+                      <td>Recorded by</td>
+                      <td><?= e($row['created_by_name'] ?? '—') ?></td>
+                    </tr>
+                    <tr>
+                      <td>Added on</td>
+                      <td><?= e(format_date($row['created_at'] ?? null)) ?></td>
+                    </tr>
+                    <tr>
+                      <td>Description</td>
+                      <td style="font-weight:500"><?= nl2br(e($row['description'] ?: '—')) ?></td>
+                    </tr>
+                  </tbody>
+                </table>
                 <?php if ($atts): ?>
                   <div class="detail-attachments">
                     <?php foreach ($atts as $att): ?>
