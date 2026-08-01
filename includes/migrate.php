@@ -196,4 +196,24 @@ function ensure_v2_schema(PDO $pdo): void
             $ins->execute([$catName, $catSlug, $catSort]);
         }
     }
+
+    try {
+        $pdo->query('SELECT 1 FROM booking_details LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS booking_details (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          transaction_id INT UNSIGNED NOT NULL,
+          customer_name VARCHAR(160) NULL,
+          plot_no VARCHAR(60) NULL,
+          area_sqft DECIMAL(12,2) NULL,
+          rate_per_sqft DECIMAL(12,2) NULL,
+          total_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+          amount_received DECIMAL(14,2) NOT NULL DEFAULT 0,
+          amount_returned DECIMAL(14,2) NOT NULL DEFAULT 0,
+          remaining_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT fk_booking_txn FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
+          UNIQUE KEY uq_booking_txn (transaction_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
 }

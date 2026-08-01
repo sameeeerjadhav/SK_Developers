@@ -231,6 +231,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        if ($catRow['slug'] === 'booking' && $txnId) {
+            $customerName = post('customer_name', '');
+            $plotNo = post('plot_no', '');
+            $areaSqft = (float) post('area_sqft', 0);
+            $ratePerSqft = (float) post('rate_per_sqft', 0);
+            $amountReturned = (float) post('amount_returned', 0);
+            $totalAmount = round($areaSqft * $ratePerSqft, 2);
+            $remaining = round($totalAmount - $amount + $amountReturned, 2);
+
+            $bChk = $pdo->prepare('SELECT id FROM booking_details WHERE transaction_id = ?');
+            $bChk->execute([$txnId]);
+            $bookingId = $bChk->fetchColumn();
+            if ($bookingId) {
+                $bUpd = $pdo->prepare('UPDATE booking_details SET customer_name=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, amount_received=?, amount_returned=?, remaining_amount=? WHERE id=?');
+                $bUpd->execute([$customerName, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $amount, $amountReturned, $remaining, $bookingId]);
+            } else {
+                $bIns = $pdo->prepare('INSERT INTO booking_details (transaction_id, customer_name, plot_no, area_sqft, rate_per_sqft, total_amount, amount_received, amount_returned, remaining_amount) VALUES (?,?,?,?,?,?,?,?,?)');
+                $bIns->execute([$txnId, $customerName, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $amount, $amountReturned, $remaining]);
+            }
+        } elseif ($editId) {
+            // Category changed away from Booking — drop any stale booking detail record
+            $pdo->prepare('DELETE FROM booking_details WHERE transaction_id = ?')->execute([$editId]);
+        }
+
         if ($partnerId) {
             sync_partner_invested($pdo, $partnerId);
         }
@@ -289,13 +313,15 @@ if ($action === 'add' || $action === 'edit') {
     // their original section (Land Purchase / Expense / General) via <optgroup> so nothing is hidden.
     $creditCats = [];
     $debitGroups = ['land_purchase' => [], 'expense' => [], 'general' => []];
+    $categorySlugById = [];
     $catGroupStmt = $pdo->query(
-        "SELECT id, name, section FROM categories
+        "SELECT id, name, section, slug FROM categories
          WHERE section IN ('credit','land_purchase','expense')
             OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit'))
          ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order"
     );
     foreach ($catGroupStmt->fetchAll() as $c) {
+        $categorySlugById[(int) $c['id']] = $c['slug'];
         if ($c['section'] === 'credit') {
             $creditCats[] = ['id' => (int) $c['id'], 'name' => $c['name']];
         } else {
@@ -310,6 +336,13 @@ if ($action === 'add' || $action === 'edit') {
         $secStmt = $pdo->prepare('SELECT section FROM categories WHERE id = ?');
         $secStmt->execute([$selectedCategory]);
         $selectedType = ($secStmt->fetchColumn() === 'credit') ? 'credit' : 'debit';
+    }
+
+    $booking = null;
+    if ($txn) {
+        $bStmt = $pdo->prepare('SELECT * FROM booking_details WHERE transaction_id = ?');
+        $bStmt->execute([$txn['id']]);
+        $booking = $bStmt->fetch() ?: null;
     }
 
     $pageTitle = $action === 'edit' ? 'Edit transaction' : 'Add transaction';
@@ -352,12 +385,47 @@ if ($action === 'add' || $action === 'edit') {
           <select name="category_id" id="txn_category_id" required></select>
         </div>
         <div>
-          <label>Amount (₹)</label>
-          <input type="number" step="0.01" min="0.01" name="amount" required value="<?= e((string) ($txn['amount'] ?? '')) ?>">
+          <label id="amount_label">Amount (₹)</label>
+          <input type="number" step="0.01" min="0.01" name="amount" id="txn_amount" required value="<?= e((string) ($txn['amount'] ?? '')) ?>">
         </div>
         <div>
           <label>Date</label>
           <input type="date" name="txn_date" required value="<?= e($txn['txn_date'] ?? date('Y-m-d')) ?>">
+        </div>
+        <div class="full" id="booking_fields" style="display:none">
+          <div class="highlight-box" style="margin-bottom:0.85rem">
+            <strong>Plot booking details</strong> — total and remaining calculate automatically.
+          </div>
+          <div class="form-grid" style="padding:0">
+            <div>
+              <label>Customer name</label>
+              <input type="text" name="customer_name" id="booking_customer_name" value="<?= e($booking['customer_name'] ?? '') ?>">
+            </div>
+            <div>
+              <label>Plot no.</label>
+              <input type="text" name="plot_no" id="booking_plot_no" value="<?= e($booking['plot_no'] ?? '') ?>">
+            </div>
+            <div>
+              <label>Area (sq ft)</label>
+              <input type="number" step="0.01" min="0" name="area_sqft" id="booking_area" value="<?= e((string) ($booking['area_sqft'] ?? '')) ?>">
+            </div>
+            <div>
+              <label>Rate per sq ft (₹)</label>
+              <input type="number" step="0.01" min="0" name="rate_per_sqft" id="booking_rate" value="<?= e((string) ($booking['rate_per_sqft'] ?? '')) ?>">
+            </div>
+            <div>
+              <label>Total amount (₹)</label>
+              <input type="text" id="booking_total" readonly value="<?= e(money($booking['total_amount'] ?? 0)) ?>">
+            </div>
+            <div>
+              <label>Amount given back to him (₹)</label>
+              <input type="number" step="0.01" min="0" name="amount_returned" id="booking_returned" value="<?= e((string) ($booking['amount_returned'] ?? '0')) ?>">
+            </div>
+            <div class="full">
+              <label>Remaining (₹)</label>
+              <input type="text" id="booking_remaining" readonly value="<?= e(money($booking['remaining_amount'] ?? 0)) ?>">
+            </div>
+          </div>
         </div>
         <div>
           <label>Bank account (optional)</label>
@@ -410,9 +478,44 @@ if ($action === 'add' || $action === 'edit') {
       (function () {
         var CATEGORY_DATA = <?= json_encode($catData) ?>;
         var DEBIT_GROUP_LABELS = <?= json_encode($debitGroupLabels) ?>;
+        var CATEGORY_SLUGS = <?= json_encode($categorySlugById) ?>;
         var preselectId = <?= (int) $selectedCategory ?>;
         var typeEl = document.getElementById('txn_type_select');
         var categoryEl = document.getElementById('txn_category_id');
+        var amountLabel = document.getElementById('amount_label');
+        var amountEl = document.getElementById('txn_amount');
+        var bookingFields = document.getElementById('booking_fields');
+        var areaEl = document.getElementById('booking_area');
+        var rateEl = document.getElementById('booking_rate');
+        var totalEl = document.getElementById('booking_total');
+        var returnedEl = document.getElementById('booking_returned');
+        var remainingEl = document.getElementById('booking_remaining');
+
+        function money(n) {
+          return '₹' + (isNaN(n) ? 0 : n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function recalcBooking() {
+          var area = parseFloat(areaEl.value) || 0;
+          var rate = parseFloat(rateEl.value) || 0;
+          var received = parseFloat(amountEl.value) || 0;
+          var returned = parseFloat(returnedEl.value) || 0;
+          var total = area * rate;
+          totalEl.value = money(total);
+          remainingEl.value = money(total - received + returned);
+        }
+
+        function toggleBookingFields() {
+          var isBooking = CATEGORY_SLUGS[categoryEl.value] === 'booking';
+          bookingFields.style.display = isBooking ? '' : 'none';
+          amountLabel.textContent = isBooking ? 'Amount received (came from him) (₹)' : 'Amount (₹)';
+          if (isBooking) recalcBooking();
+        }
+
+        [areaEl, rateEl, amountEl, returnedEl].forEach(function (el) {
+          el.addEventListener('input', recalcBooking);
+        });
+        categoryEl.addEventListener('change', toggleBookingFields);
 
         function addOption(parent, opt, selectId, state) {
           var o = document.createElement('option');
@@ -452,8 +555,9 @@ if ($action === 'add' || $action === 'edit') {
           if (!state.matched) placeholder.selected = true;
         }
 
-        typeEl.addEventListener('change', function () { populateCategories(null); });
+        typeEl.addEventListener('change', function () { populateCategories(null); toggleBookingFields(); });
         populateCategories(preselectId);
+        toggleBookingFields();
       })();
     </script>
     <?php
