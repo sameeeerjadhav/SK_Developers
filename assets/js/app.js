@@ -180,16 +180,34 @@
     preview.classList.toggle('text-success', next <= 0);
   });
 
-  // Bulk-select export toolbar (Investments page)
-  var exportForm = document.getElementById('investmentsExportForm');
-  if (exportForm) {
-    var selectAll = document.getElementById('selectAllTxns');
-    var selectedCount = document.getElementById('selectedCount');
-    var exportCsvBtn = document.getElementById('exportCsvBtn');
-    var exportPdfBtn = document.getElementById('exportPdfBtn');
+  // Live "principal portion" preview on loan repayment forms (record + inline edit)
+  document.addEventListener('input', function (e) {
+    if (!e.target.classList.contains('repay-calc-field')) return;
+    var form = e.target.closest('form.repay-edit-form');
+    if (!form) return;
+    var amount = parseFloat(form.querySelector('[name="amount"]').value) || 0;
+    var interest = parseFloat(form.querySelector('[name="interest_amount"]').value) || 0;
+    if (interest > amount) interest = amount;
+    var principal = Math.max(0, amount - interest);
+    var preview = form.querySelector('.repay-principal-preview');
+    if (!preview) return;
+    preview.value = '₹' + principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  });
+
+  // Bulk-select export toolbars (Investments, Loan Repayments, etc.)
+  // Checkboxes may live outside the <form> DOM subtree (associated via form="…"
+  // so they can sit inside per-row edit forms without illegally nesting forms),
+  // so lookups use .elements / the .form property instead of querySelectorAll.
+  document.querySelectorAll('form.bulk-export-form').forEach(function (exportForm) {
+    var selectAll = exportForm.querySelector('.select-all-toggle');
+    var selectedCount = exportForm.querySelector('.selected-count');
+    var exportCsvBtn = exportForm.querySelector('.export-csv-btn');
+    var exportPdfBtn = exportForm.querySelector('.export-pdf-btn');
 
     var getCheckboxes = function () {
-      return Array.prototype.slice.call(exportForm.querySelectorAll('.txn-checkbox'));
+      return Array.prototype.filter.call(exportForm.elements, function (el) {
+        return el.classList && el.classList.contains('bulk-checkbox');
+      });
     };
 
     var refreshToolbar = function () {
@@ -204,8 +222,8 @@
       }
     };
 
-    exportForm.addEventListener('change', function (e) {
-      if (e.target.classList.contains('txn-checkbox')) refreshToolbar();
+    document.addEventListener('change', function (e) {
+      if (e.target.classList.contains('bulk-checkbox') && e.target.form === exportForm) refreshToolbar();
     });
 
     if (selectAll) {
@@ -216,7 +234,7 @@
     }
 
     refreshToolbar();
-  }
+  });
 
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {

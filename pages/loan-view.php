@@ -70,6 +70,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/loan-view.php?id=' . $id);
     }
 
+    if ($postAction === 'edit_repayment') {
+        $repayId = (int) post('repayment_id', 0);
+        $amount = (float) post('amount', 0);
+        $interestAmount = (float) post('interest_amount', 0);
+        $paymentDate = post('payment_date', date('Y-m-d'));
+        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $notes = post('notes', '');
+
+        $rStmt = $pdo->prepare('SELECT * FROM loan_repayments WHERE id = ? AND loan_id = ?');
+        $rStmt->execute([$repayId, $id]);
+        $repayment = $rStmt->fetch();
+        if (!$repayment || $amount <= 0) {
+            flash('error', 'Invalid repayment.');
+            redirect('pages/loan-view.php?id=' . $id);
+        }
+        if ($interestAmount > $amount) {
+            $interestAmount = $amount;
+        }
+        $principalAmount = round($amount - $interestAmount, 2);
+
+        if ($repayment['transaction_id']) {
+            $pdo->prepare('UPDATE transactions SET amount=?, txn_date=?, bank_account_id=?, description=? WHERE id=?')
+                ->execute([
+                    $amount, $paymentDate, $bankAccountId,
+                    'Loan repayment — ' . $loan['lender_name'] . ' — P ' . money($principalAmount) . ' / I ' . money($interestAmount),
+                    $repayment['transaction_id'],
+                ]);
+        }
+
+        $pdo->prepare('UPDATE loan_repayments SET amount=?, principal_amount=?, interest_amount=?, payment_date=?, bank_account_id=?, notes=? WHERE id=?')
+            ->execute([$amount, $principalAmount, $interestAmount, $paymentDate, $bankAccountId, $notes, $repayId]);
+
+        refresh_loan_outstanding($pdo, $id);
+        audit_log($pdo, 'update', 'loan_repayment', $id, 'Edited repayment #' . $repayId . ' to ' . money($amount) . ' (P ' . money($principalAmount) . ' / I ' . money($interestAmount) . ')');
+        flash('success', 'Repayment updated.');
+        redirect('pages/loan-view.php?id=' . $id);
+    }
+
     if ($postAction === 'delete_repayment') {
         if (!can_delete()) {
             flash('error', 'Only admins can delete repayments.');
@@ -119,20 +157,20 @@ require __DIR__ . '/../includes/header.php';
   <div class="card-head">
     <h2 class="card-title">Record a repayment</h2>
   </div>
-  <form method="post" class="form-grid" id="repaymentForm">
+  <form method="post" class="form-grid repay-edit-form" id="repaymentForm">
     <?= csrf_field() ?>
     <input type="hidden" name="action" value="record_repayment">
     <div>
       <label>Amount paid (₹)</label>
-      <input type="number" step="0.01" min="0.01" name="amount" id="repay_amount" required>
+      <input type="number" step="0.01" min="0.01" name="amount" class="repay-calc-field" required>
     </div>
     <div>
       <label>Of which interest (₹, optional)</label>
-      <input type="number" step="0.01" min="0" name="interest_amount" id="repay_interest" value="0">
+      <input type="number" step="0.01" min="0" name="interest_amount" class="repay-calc-field" value="0">
     </div>
     <div>
       <label>Principal portion (₹)</label>
-      <input type="text" id="repay_principal_preview" readonly value="₹0.00">
+      <input type="text" class="repay-principal-preview" readonly value="₹0.00">
     </div>
     <div>
       <label>Date</label>
@@ -176,25 +214,60 @@ require __DIR__ . '/../includes/header.php';
             <th class="num">Interest</th>
             <th>Bank account</th>
             <th>Notes</th>
-            <th class="actions">Actions</th>
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($repayments as $r): ?>
-            <tr>
-              <td><?= e(format_date($r['payment_date'])) ?></td>
+          <?php foreach ($repayments as $r):
+            $repayEditId = 'repay-edit-' . $r['id'];
+          ?>
+            <tr class="row-clickable" data-row-toggle="<?= e($repayEditId) ?>" title="Click to edit">
+              <td><span class="row-caret">▸</span><?= e(format_date($r['payment_date'])) ?></td>
               <td class="num"><?= money($r['amount']) ?></td>
               <td class="num text-success"><?= money($r['principal_amount']) ?></td>
               <td class="num text-danger"><?= money($r['interest_amount']) ?></td>
               <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
               <td><?= e($r['notes'] ?: '') ?></td>
-              <td class="actions">
+            </tr>
+            <tr class="row-detail" id="<?= e($repayEditId) ?>" hidden>
+              <td colspan="6">
+                <form method="post" class="form-grid repay-edit-form" style="padding:0">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="action" value="edit_repayment">
+                  <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
+                  <div>
+                    <label>Amount paid (₹)</label>
+                    <input type="number" step="0.01" min="0.01" name="amount" class="repay-calc-field" required value="<?= e((string) $r['amount']) ?>">
+                  </div>
+                  <div>
+                    <label>Of which interest (₹)</label>
+                    <input type="number" step="0.01" min="0" name="interest_amount" class="repay-calc-field" value="<?= e((string) $r['interest_amount']) ?>">
+                  </div>
+                  <div>
+                    <label>Principal portion (₹)</label>
+                    <input type="text" class="repay-principal-preview" readonly value="<?= e(money($r['principal_amount'])) ?>">
+                  </div>
+                  <div>
+                    <label>Date</label>
+                    <input type="date" name="payment_date" required value="<?= e($r['payment_date']) ?>">
+                  </div>
+                  <div>
+                    <label>Bank account (optional)</label>
+                    <select name="bank_account_id"><?= bank_account_options($pdo, (int) $loan['company_id'], (int) ($r['bank_account_id'] ?? 0)) ?></select>
+                  </div>
+                  <div class="full">
+                    <label>Notes</label>
+                    <input type="text" name="notes" value="<?= e($r['notes'] ?? '') ?>">
+                  </div>
+                  <div class="full form-actions" style="justify-content:flex-start">
+                    <button class="btn btn-primary btn-sm" type="submit">Save changes</button>
+                  </div>
+                </form>
                 <?php if (can_delete()): ?>
-                <form method="post" style="display:inline">
+                <form method="post" style="margin-top:0.5rem">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="delete_repayment">
                   <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry?">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry?">Delete this entry</button>
                 </form>
                 <?php endif; ?>
               </td>
@@ -209,31 +282,11 @@ require __DIR__ . '/../includes/header.php';
             <td class="num"><?= money($interestRepaid) ?></td>
             <td></td>
             <td></td>
-            <td></td>
           </tr>
         </tfoot>
       </table>
     </div>
   <?php endif; ?>
 </div>
-
-<script>
-  (function () {
-    var amountEl = document.getElementById('repay_amount');
-    var interestEl = document.getElementById('repay_interest');
-    var previewEl = document.getElementById('repay_principal_preview');
-
-    function recalc() {
-      var amount = parseFloat(amountEl.value) || 0;
-      var interest = parseFloat(interestEl.value) || 0;
-      if (interest > amount) interest = amount;
-      var principal = Math.max(0, amount - interest);
-      previewEl.value = '₹' + principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-
-    amountEl.addEventListener('input', recalc);
-    interestEl.addEventListener('input', recalc);
-  })();
-</script>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>

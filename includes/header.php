@@ -24,6 +24,7 @@ $nav = [
         ['href' => 'pages/expenses.php', 'label' => 'Expense', 'icon' => 'expense', 'match' => ['expenses.php']],
         ['href' => 'pages/assets.php', 'label' => 'Asset', 'icon' => 'asset', 'match' => ['assets.php']],
         ['href' => 'pages/bank-loans.php', 'label' => 'Bank Loans', 'icon' => 'loan', 'match' => ['bank-loans.php', 'loan-view.php']],
+        ['href' => 'pages/loan-repayments.php', 'label' => 'Loan Repayments', 'icon' => 'txn', 'match' => ['loan-repayments.php']],
         ['href' => 'pages/bank-accounts.php', 'label' => 'Bank Account', 'icon' => 'bank', 'match' => ['bank-accounts.php', 'bank-account-view.php']],
         ['href' => 'pages/transfers.php', 'label' => 'Transfers', 'icon' => 'txn', 'match' => ['transfers.php']],
         ['href' => 'pages/deposits.php', 'label' => 'Deposit', 'icon' => 'deposit', 'match' => ['deposits.php']],

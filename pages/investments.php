@@ -84,7 +84,7 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
                         $atts = $attachmentsByTxn[(int) $row['id']] ?? [];
                       ?>
                         <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
-                          <td class="select-col"><input type="checkbox" class="txn-checkbox" name="txn_ids[]" value="<?= (int) $row['id'] ?>"></td>
+                          <td class="select-col"><input type="checkbox" class="bulk-checkbox" name="txn_ids[]" value="<?= (int) $row['id'] ?>"></td>
                           <td><span class="row-caret">▸</span><?= e($row['txn_date']) ?></td>
                           <td><?= e($row['project_name'] ?? '—') ?></td>
                           <td><?= e($row['category_name']) ?></td>
@@ -416,17 +416,17 @@ require __DIR__ . '/../includes/header.php';
     <div class="empty"><strong>No investments yet</strong><p>Add an investment (credit) or a withdrawal (debit) entry.</p></div>
   </div>
 <?php else: ?>
-  <form id="investmentsExportForm" method="post" action="<?= e(base_url('pages/investments.php' . ($filterCompany || $filterFrom || $filterTo ? '?' . http_build_query(['company_id' => $filterCompany ?: null, 'from' => $filterFrom ?: null, 'to' => $filterTo ?: null]) : ''))) ?>">
+  <form id="investmentsExportForm" class="bulk-export-form" method="post" action="<?= e(base_url('pages/investments.php' . ($filterCompany || $filterFrom || $filterTo ? '?' . http_build_query(['company_id' => $filterCompany ?: null, 'from' => $filterFrom ?: null, 'to' => $filterTo ?: null]) : ''))) ?>">
     <?= csrf_field() ?>
     <div class="export-toolbar no-print">
       <label class="select-all-label">
-        <input type="checkbox" id="selectAllTxns">
+        <input type="checkbox" class="select-all-toggle">
         Select all
       </label>
-      <span id="selectedCount" class="muted">0 selected</span>
+      <span class="selected-count muted">0 selected</span>
       <div class="export-actions">
-        <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="csv" id="exportCsvBtn" disabled>Export CSV</button>
-        <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="pdf" id="exportPdfBtn" disabled>Export PDF</button>
+        <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
+        <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
       </div>
     </div>
 
