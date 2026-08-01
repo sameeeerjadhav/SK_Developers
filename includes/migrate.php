@@ -382,6 +382,19 @@ function ensure_v2_schema(PDO $pdo): void
         $pdo->exec('ALTER TABLE bank_loans ADD COLUMN reconveyance_date DATE NULL AFTER mortgage_noc_date');
     }
 
+    try {
+        $pdo->query('SELECT 1 FROM loan_borrowers LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS loan_borrowers (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          loan_id INT UNSIGNED NOT NULL,
+          name VARCHAR(160) NOT NULL,
+          phone VARCHAR(40) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT fk_borrower_loan FOREIGN KEY (loan_id) REFERENCES bank_loans(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
     // ---- Project land-record fields ----
     $projectCols = $pdo->query("SHOW COLUMNS FROM projects")->fetchAll(PDO::FETCH_COLUMN);
     foreach ([

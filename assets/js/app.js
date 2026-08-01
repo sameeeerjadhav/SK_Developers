@@ -236,6 +236,29 @@
     refreshToolbar();
   });
 
+  // Repeatable field rows (e.g. multiple borrower names on a bank loan)
+  document.querySelectorAll('[data-repeat-add]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var container = document.querySelector('[data-repeat-container="' + btn.getAttribute('data-repeat-add') + '"]');
+      var template = document.getElementById(btn.getAttribute('data-repeat-template'));
+      if (!container || !template) return;
+      container.appendChild(template.content.cloneNode(true));
+    });
+  });
+
+  document.addEventListener('click', function (e) {
+    var removeBtn = e.target.closest('[data-repeat-remove]');
+    if (!removeBtn) return;
+    var row = removeBtn.closest('.repeat-row');
+    var container = row && row.parentElement;
+    if (!row || !container) return;
+    if (container.children.length > 1) {
+      row.remove();
+    } else {
+      row.querySelectorAll('input').forEach(function (inp) { inp.value = ''; });
+    }
+  });
+
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {
       if (!confirm(el.getAttribute('data-confirm') || 'Are you sure?')) {

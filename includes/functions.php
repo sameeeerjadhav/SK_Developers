@@ -621,6 +621,21 @@ function refresh_loan_outstanding(PDO $pdo, int $loanId): void
         ->execute([$outstanding, $status, $loanId]);
 }
 
+/** Replaces a loan's borrower list. Pass parallel $names/$phones arrays (blank names are skipped). */
+function sync_loan_borrowers(PDO $pdo, int $loanId, array $names, array $phones = []): void
+{
+    $pdo->prepare('DELETE FROM loan_borrowers WHERE loan_id = ?')->execute([$loanId]);
+    $ins = $pdo->prepare('INSERT INTO loan_borrowers (loan_id, name, phone) VALUES (?,?,?)');
+    foreach ($names as $i => $name) {
+        $name = trim((string) $name);
+        if ($name === '') {
+            continue;
+        }
+        $phone = trim((string) ($phones[$i] ?? ''));
+        $ins->execute([$loanId, $name, $phone !== '' ? $phone : null]);
+    }
+}
+
 function account_balance(PDO $pdo, int $accountId): float
 {
     $stmt = $pdo->prepare('SELECT opening_balance FROM bank_accounts WHERE id = ?');

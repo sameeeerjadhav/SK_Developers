@@ -25,6 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
+        $borrowerNames = $_POST['borrower_name'] ?? [];
+        $borrowerPhones = $_POST['borrower_phone'] ?? [];
         if (!$companyId || $lender === '') {
             flash('error', 'Company and lender name are required.');
             redirect('pages/bank-loans.php?action=add');
@@ -32,12 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($editId) {
             $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, status=?, notes=?, mortgage_noc_date=?, reconveyance_date=? WHERE id=?');
             $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate, $editId]);
+            sync_loan_borrowers($pdo, $editId, $borrowerNames, $borrowerPhones);
             flash('success', 'Bank loan updated.');
             redirect('pages/loan-view.php?id=' . $editId);
         } else {
             $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, status, notes, mortgage_noc_date, reconveyance_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
             $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate]);
             $newLoanId = (int) $pdo->lastInsertId();
+            sync_loan_borrowers($pdo, $newLoanId, $borrowerNames, $borrowerPhones);
 
             if ($postToLedger && $loanAmount > 0) {
                 $catId = category_id_by_slug($pdo, 'credit', 'bank_loan');
@@ -76,10 +80,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($action === 'add' || $action === 'edit') {
     $row = null;
+    $borrowers = [];
     if ($action === 'edit' && $id) {
         $stmt = $pdo->prepare('SELECT * FROM bank_loans WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch();
+        $bStmt = $pdo->prepare('SELECT name, phone FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+        $bStmt->execute([$id]);
+        $borrowers = $bStmt->fetchAll();
+    }
+    if (!$borrowers) {
+        $borrowers = [['name' => '', 'phone' => '']];
     }
     $pageTitle = $action === 'edit' ? 'Edit bank loan' : 'Add bank loan';
     $pageActions = ($row ? '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $row['id'])) . '">Record repayment</a>' : '')
@@ -109,6 +120,26 @@ if ($action === 'add' || $action === 'edit') {
         <div class="full">
           <label>Lender / bank name</label>
           <input type="text" name="lender_name" required value="<?= e($row['lender_name'] ?? '') ?>">
+        </div>
+        <div class="full">
+          <label>People on this loan (borrowers / guarantors)</label>
+          <div data-repeat-container="borrowers">
+            <?php foreach ($borrowers as $b): ?>
+            <div class="repeat-row" style="display:flex;gap:0.5rem;margin-bottom:0.5rem">
+              <input type="text" name="borrower_name[]" placeholder="Name" value="<?= e($b['name'] ?? '') ?>" style="flex:2">
+              <input type="text" name="borrower_phone[]" placeholder="Phone (optional)" value="<?= e($b['phone'] ?? '') ?>" style="flex:1">
+              <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times;</button>
+            </div>
+            <?php endforeach; ?>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" data-repeat-add="borrowers" data-repeat-template="borrowerRowTemplate">+ Add person</button>
+          <template id="borrowerRowTemplate">
+            <div class="repeat-row" style="display:flex;gap:0.5rem;margin-bottom:0.5rem">
+              <input type="text" name="borrower_name[]" placeholder="Name" style="flex:2">
+              <input type="text" name="borrower_phone[]" placeholder="Phone (optional)" style="flex:1">
+              <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times;</button>
+            </div>
+          </template>
         </div>
         <div>
           <label>Loan amount (₹)</label>
@@ -180,6 +211,17 @@ $loans = $pdo->query(
      ORDER BY l.status, l.created_at DESC'
 )->fetchAll();
 $outstanding = array_sum(array_map(fn($l) => $l['status'] === 'active' ? (float)$l['outstanding_amount'] : 0, $loans));
+
+$borrowersByLoan = [];
+$loanIds = array_column($loans, 'id');
+if ($loanIds) {
+    $in = implode(',', array_fill(0, count($loanIds), '?'));
+    $bStmt = $pdo->prepare("SELECT loan_id, name FROM loan_borrowers WHERE loan_id IN ($in) ORDER BY id");
+    $bStmt->execute($loanIds);
+    foreach ($bStmt->fetchAll() as $b) {
+        $borrowersByLoan[(int) $b['loan_id']][] = $b['name'];
+    }
+}
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
@@ -192,11 +234,12 @@ require __DIR__ . '/../includes/header.php';
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>Lender</th><th>Company</th><th>Project</th><th class="num">Loan</th><th class="num">Outstanding</th><th class="num">Interest + Charges</th><th>Status</th><th class="actions">Actions</th></tr></thead>
+        <thead><tr><th>Lender</th><th>Borrowers</th><th>Company</th><th>Project</th><th class="num">Loan</th><th class="num">Outstanding</th><th class="num">Interest + Charges</th><th>Status</th><th class="actions">Actions</th></tr></thead>
         <tbody>
           <?php foreach ($loans as $l): ?>
             <tr>
               <td><strong><?= e($l['lender_name']) ?></strong></td>
+              <td><?= e(implode(', ', $borrowersByLoan[(int) $l['id']] ?? []) ?: '—') ?></td>
               <td><?= e($l['company_name']) ?></td>
               <td><?= e($l['project_name'] ?? '—') ?></td>
               <td class="num"><?= money($l['loan_amount']) ?></td>

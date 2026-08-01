@@ -135,6 +135,10 @@ $totalRepaid = array_sum(array_map(fn($r) => (float) $r['amount'], $repayments))
 $principalRepaid = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $repayments));
 $interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $repayments));
 
+$borrowerStmt = $pdo->prepare('SELECT name, phone FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+$borrowerStmt->execute([$id]);
+$borrowers = $borrowerStmt->fetchAll();
+
 $pageTitle = $loan['lender_name'];
 $pageSub = 'Loan repayments — ' . $loan['company_name'] . '. Amounts vary, so each repayment is entered manually.';
 $pageActions =
@@ -154,6 +158,22 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Mortgage NOC</div><div class="stat-value"><?= $loan['mortgage_noc_date'] ? e(format_date($loan['mortgage_noc_date'])) : '—' ?></div></div>
   <div class="stat-card"><div class="stat-label">Reconveyance</div><div class="stat-value"><?= $loan['reconveyance_date'] ? e(format_date($loan['reconveyance_date'])) : '—' ?></div></div>
 </div>
+
+<?php if ($borrowers): ?>
+<div class="card">
+  <h2 class="card-title">Borrowers / guarantors</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Name</th><th>Phone</th></tr></thead>
+      <tbody>
+        <?php foreach ($borrowers as $b): ?>
+          <tr><td><?= e($b['name']) ?></td><td><?= e($b['phone'] ?: '—') ?></td></tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif; ?>
 
 <div class="card">
   <div class="card-head">
