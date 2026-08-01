@@ -47,6 +47,11 @@ CREATE TABLE projects (
   status ENUM('planning','active','completed','on_hold') NOT NULL DEFAULT 'active',
   start_date DATE NULL,
   end_date DATE NULL,
+  deed_name VARCHAR(180) NULL,
+  party_name VARCHAR(180) NULL,
+  survey_no VARCHAR(80) NULL,
+  area_sqft DECIMAL(12,2) NULL,
+  address TEXT NULL,
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_projects_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
@@ -83,9 +88,21 @@ CREATE TABLE partners (
   email VARCHAR(160) NULL,
   share_percent DECIMAL(5,2) NULL,
   invested_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  advance_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_partners_company FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE investors (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(160) NOT NULL,
+  phone VARCHAR(40) NULL,
+  email VARCHAR(160) NULL,
+  address TEXT NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_investors_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE assets (
@@ -115,6 +132,8 @@ CREATE TABLE bank_loans (
   emi_start_date DATE NULL,
   start_date DATE NULL,
   end_date DATE NULL,
+  mortgage_noc_date DATE NULL,
+  reconveyance_date DATE NULL,
   status ENUM('active','closed') NOT NULL DEFAULT 'active',
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -145,6 +164,8 @@ CREATE TABLE transactions (
   bank_account_id INT UNSIGNED NULL,
   category_id INT UNSIGNED NOT NULL,
   partner_id INT UNSIGNED NULL,
+  investor_id INT UNSIGNED NULL,
+  interest_amount DECIMAL(14,2) NULL,
   txn_type ENUM('credit','debit') NOT NULL,
   amount DECIMAL(14,2) NOT NULL,
   txn_date DATE NOT NULL,
@@ -157,6 +178,7 @@ CREATE TABLE transactions (
   CONSTRAINT fk_txn_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
   CONSTRAINT fk_txn_category FOREIGN KEY (category_id) REFERENCES categories(id),
   CONSTRAINT fk_txn_partner FOREIGN KEY (partner_id) REFERENCES partners(id) ON DELETE SET NULL,
+  CONSTRAINT fk_txn_investor FOREIGN KEY (investor_id) REFERENCES investors(id) ON DELETE SET NULL,
   CONSTRAINT fk_txn_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_txn_date (txn_date),
   INDEX idx_txn_company_project (company_id, project_id)
@@ -296,6 +318,8 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 ('credit', 'Daily Credit', 'daily_credit', 11),
 ('credit', 'Monthly Credit', 'monthly_credit', 12),
 ('credit', 'Partner', 'partner', 20),
+('credit', 'Partner Capital', 'partner_capital', 21),
+('credit', 'Partner Advance', 'partner_advance', 22),
 ('credit', 'Booking', 'booking', 30),
 ('credit', 'Bank Loan', 'bank_loan', 40),
 ('credit', 'Bank Account', 'bank_account', 50),
@@ -321,7 +345,9 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 ('general', 'Investment Withdrawal', 'investment_withdrawal', 50),
 ('general', 'Daily Debit', 'daily_debit', 51),
 ('general', 'Monthly Debit', 'monthly_debit', 52),
-('general', 'Booking Refund', 'booking_refund', 53);
+('general', 'Booking Refund', 'booking_refund', 53),
+('general', 'Partner Capital Withdrawal', 'partner_capital_withdrawal', 54),
+('general', 'Partner Advance Return', 'partner_advance_return', 55);
 
 -- Sample projects
 INSERT INTO projects (company_id, name, location, status, start_date) VALUES

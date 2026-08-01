@@ -20,6 +20,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $end = post('end_date') ?: null;
         $status = post('status', 'active');
         $notes = post('notes', '');
+        $mortgageNocDate = post('mortgage_noc_date') ?: null;
+        $reconveyanceDate = post('reconveyance_date') ?: null;
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
@@ -28,13 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/bank-loans.php?action=add');
         }
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, status=?, notes=? WHERE id=?');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $start, $end, $status, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, status=?, notes=?, mortgage_noc_date=?, reconveyance_date=? WHERE id=?');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate, $editId]);
             flash('success', 'Bank loan updated.');
             redirect('pages/loan-view.php?id=' . $editId);
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, status, notes) VALUES (?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $start, $end, $status, $notes]);
+            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, status, notes, mortgage_noc_date, reconveyance_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate]);
             $newLoanId = (int) $pdo->lastInsertId();
 
             if ($postToLedger && $loanAmount > 0) {
@@ -134,6 +136,14 @@ if ($action === 'add' || $action === 'edit') {
         <div>
           <label>End date</label>
           <input type="date" name="end_date" value="<?= e($row['end_date'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Mortgage NOC date</label>
+          <input type="date" name="mortgage_noc_date" value="<?= e($row['mortgage_noc_date'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Reconveyance date</label>
+          <input type="date" name="reconveyance_date" value="<?= e($row['reconveyance_date'] ?? '') ?>">
         </div>
         <div class="full">
           <label>Notes</label>

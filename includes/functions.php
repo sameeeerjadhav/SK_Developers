@@ -393,12 +393,14 @@ function create_transaction(
     ?int $partnerId = null,
     ?string $reference = null,
     ?string $description = null,
-    ?int $createdBy = null
+    ?int $createdBy = null,
+    ?int $investorId = null,
+    ?float $interestAmount = null
 ): int {
     $stmt = $pdo->prepare(
         'INSERT INTO transactions
-        (company_id, project_id, bank_account_id, category_id, partner_id, txn_type, amount, txn_date, reference_no, description, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        (company_id, project_id, bank_account_id, category_id, partner_id, investor_id, interest_amount, txn_type, amount, txn_date, reference_no, description, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     $stmt->execute([
         $companyId,
@@ -406,6 +408,8 @@ function create_transaction(
         $bankAccountId,
         $categoryId,
         $partnerId,
+        $investorId,
+        $interestAmount,
         $txnType,
         $amount,
         $txnDate,
@@ -478,7 +482,9 @@ function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, 
     $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId, $from, $to)
         + sum_by_category_slug($pdo, 'credit', 'daily_credit', $companyId, $from, $to)
         + sum_by_category_slug($pdo, 'credit', 'monthly_credit', $companyId, $from, $to);
-    $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId, $from, $to);
+    $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId, $from, $to)
+        + sum_by_category_slug($pdo, 'credit', 'partner_capital', $companyId, $from, $to)
+        + sum_by_category_slug($pdo, 'credit', 'partner_advance', $companyId, $from, $to);
     $creditBooking = sum_by_category_slug($pdo, 'credit', 'booking', $companyId, $from, $to);
     $expenses = sum_transactions($pdo, 'debit', $companyId, null, 'expense', $from, $to)
         + sum_transactions($pdo, 'debit', $companyId, null, 'land_purchase', $from, $to);
@@ -524,6 +530,7 @@ function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, 
         'assets'       => $assets,
         'deposits'     => $deposits,
         'bank_balance' => $bankBalance,
+        'cash_balance' => cash_balance($pdo, $companyId),
         'profit'       => $credits - $debits,
         'credits'      => $credits,
         'debits'       => $debits,
@@ -629,6 +636,24 @@ function account_balance(PDO $pdo, int $accountId): float
     return $opening + (float) $row['credits'] - (float) $row['debits'];
 }
 
+/** Running cash-in-hand balance — transactions with no bank account linked. */
+function cash_balance(PDO $pdo, ?int $companyId = null): float
+{
+    $sql = "SELECT
+        COALESCE(SUM(CASE WHEN txn_type = 'credit' THEN amount ELSE 0 END),0) AS credits,
+        COALESCE(SUM(CASE WHEN txn_type = 'debit' THEN amount ELSE 0 END),0) AS debits
+        FROM transactions WHERE bank_account_id IS NULL";
+    $params = [];
+    if ($companyId) {
+        $sql .= ' AND company_id = ?';
+        $params[] = $companyId;
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $row = $stmt->fetch() ?: ['credits' => 0, 'debits' => 0];
+    return (float) $row['credits'] - (float) $row['debits'];
+}
+
 function scalar_sum(PDO $pdo, string $sql, array $params = []): float
 {
     $stmt = $pdo->prepare($sql);
@@ -664,12 +689,31 @@ function section_breakdown(PDO $pdo, int $projectId, string $section): array
 function sync_partner_invested(PDO $pdo, int $partnerId): void
 {
     $stmt = $pdo->prepare(
-        "SELECT COALESCE(SUM(amount),0) FROM transactions t
+        "SELECT
+            COALESCE(SUM(CASE WHEN c.slug IN ('partner','partner_capital') AND t.txn_type = 'credit' THEN t.amount ELSE 0 END),0) -
+            COALESCE(SUM(CASE WHEN c.slug = 'partner_capital_withdrawal' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END),0) AS total
+         FROM transactions t
          JOIN categories c ON c.id = t.category_id
-         WHERE t.partner_id = ? AND t.txn_type = 'credit' AND c.slug = 'partner'"
+         WHERE t.partner_id = ?"
     );
     $stmt->execute([$partnerId]);
     $total = (float) $stmt->fetchColumn();
     $upd = $pdo->prepare('UPDATE partners SET invested_amount = ? WHERE id = ?');
+    $upd->execute([$total, $partnerId]);
+}
+
+function sync_partner_advance(PDO $pdo, int $partnerId): void
+{
+    $stmt = $pdo->prepare(
+        "SELECT
+            COALESCE(SUM(CASE WHEN c.slug = 'partner_advance' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END),0) -
+            COALESCE(SUM(CASE WHEN c.slug = 'partner_advance_return' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END),0) AS total
+         FROM transactions t
+         JOIN categories c ON c.id = t.category_id
+         WHERE t.partner_id = ?"
+    );
+    $stmt->execute([$partnerId]);
+    $total = (float) $stmt->fetchColumn();
+    $upd = $pdo->prepare('UPDATE partners SET advance_amount = ? WHERE id = ?');
     $upd->execute([$total, $partnerId]);
 }

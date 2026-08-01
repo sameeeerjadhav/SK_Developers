@@ -70,6 +70,19 @@ function render_ledger_rows(array $rows): void
   </div>
 </div>
 
+<?php if ($project['deed_name'] || $project['party_name'] || $project['survey_no'] || $project['area_sqft'] || $project['address']): ?>
+<div class="card">
+  <h2 class="card-title">Land record</h2>
+  <div class="grid-2" style="gap:0.75rem">
+    <div class="highlight-box"><span class="muted" style="font-size:0.72rem">Deed name</span><br><?= e($project['deed_name'] ?: '—') ?></div>
+    <div class="highlight-box"><span class="muted" style="font-size:0.72rem">Party name</span><br><?= e($project['party_name'] ?: '—') ?></div>
+    <div class="highlight-box"><span class="muted" style="font-size:0.72rem">Survey No. (S.No.)</span><br><?= e($project['survey_no'] ?: '—') ?></div>
+    <div class="highlight-box"><span class="muted" style="font-size:0.72rem">Area</span><br><?= $project['area_sqft'] !== null ? e((string) $project['area_sqft']) . ' sqft' : '—' ?></div>
+    <div class="highlight-box full" style="grid-column:1/-1"><span class="muted" style="font-size:0.72rem">Address</span><br><?= nl2br(e($project['address'] ?: '—')) ?></div>
+  </div>
+</div>
+<?php endif; ?>
+
 <div class="grid-3">
   <div class="card ledger-block credit">
     <h3>Credit</h3>

@@ -19,6 +19,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $start = post('start_date') ?: null;
         $end = post('end_date') ?: null;
         $notes = post('notes', '');
+        $deedName = post('deed_name', '');
+        $partyName = post('party_name', '');
+        $surveyNo = post('survey_no', '');
+        $areaSqft = post('area_sqft') !== '' ? (float) post('area_sqft') : null;
+        $address = post('address', '');
         $editId = (int) post('id', 0);
 
         if (!$companyId || $name === '') {
@@ -27,14 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE projects SET company_id=?, name=?, location=?, status=?, start_date=?, end_date=?, notes=? WHERE id=?');
-            $stmt->execute([$companyId, $name, $location, $status, $start, $end, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE projects SET company_id=?, name=?, location=?, status=?, start_date=?, end_date=?, notes=?, deed_name=?, party_name=?, survey_no=?, area_sqft=?, address=? WHERE id=?');
+            $stmt->execute([$companyId, $name, $location, $status, $start, $end, $notes, $deedName, $partyName, $surveyNo, $areaSqft, $address, $editId]);
             flash('success', 'Project updated.');
             redirect('pages/project-view.php?id=' . $editId);
         }
 
-        $stmt = $pdo->prepare('INSERT INTO projects (company_id, name, location, status, start_date, end_date, notes) VALUES (?,?,?,?,?,?,?)');
-        $stmt->execute([$companyId, $name, $location, $status, $start, $end, $notes]);
+        $stmt = $pdo->prepare('INSERT INTO projects (company_id, name, location, status, start_date, end_date, notes, deed_name, party_name, survey_no, area_sqft, address) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+        $stmt->execute([$companyId, $name, $location, $status, $start, $end, $notes, $deedName, $partyName, $surveyNo, $areaSqft, $address]);
         $newId = (int) $pdo->lastInsertId();
         flash('success', 'Project created.');
         redirect('pages/project-view.php?id=' . $newId);
@@ -99,6 +104,26 @@ if ($action === 'add' || $action === 'edit') {
         <div>
           <label>End date</label>
           <input type="date" name="end_date" value="<?= e($project['end_date'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Deed name</label>
+          <input type="text" name="deed_name" value="<?= e($project['deed_name'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Party name</label>
+          <input type="text" name="party_name" value="<?= e($project['party_name'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Survey No. (S.No.)</label>
+          <input type="text" name="survey_no" value="<?= e($project['survey_no'] ?? '') ?>">
+        </div>
+        <div>
+          <label>Area (sqft)</label>
+          <input type="number" step="0.01" name="area_sqft" value="<?= e((string) ($project['area_sqft'] ?? '')) ?>">
+        </div>
+        <div class="full">
+          <label>Address</label>
+          <textarea name="address"><?= e($project['address'] ?? '') ?></textarea>
         </div>
         <div class="full">
           <label>Notes</label>

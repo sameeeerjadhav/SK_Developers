@@ -324,4 +324,75 @@ function ensure_v2_schema(PDO $pdo): void
           INDEX idx_lr_loan (loan_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     }
+
+    // ---- Investors (identity behind Investment transactions) ----
+    try {
+        $pdo->query('SELECT 1 FROM investors LIMIT 1');
+    } catch (Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS investors (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(160) NOT NULL,
+          phone VARCHAR(40) NULL,
+          email VARCHAR(160) NULL,
+          address TEXT NULL,
+          notes TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_investors_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    $txnCols = $pdo->query("SHOW COLUMNS FROM transactions")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('investor_id', $txnCols, true)) {
+        $pdo->exec('ALTER TABLE transactions ADD COLUMN investor_id INT UNSIGNED NULL AFTER partner_id');
+        try {
+            $pdo->exec('ALTER TABLE transactions ADD CONSTRAINT fk_txn_investor FOREIGN KEY (investor_id) REFERENCES investors(id) ON DELETE SET NULL');
+        } catch (Throwable $e) {
+        }
+    }
+    if (!in_array('interest_amount', $txnCols, true)) {
+        $pdo->exec('ALTER TABLE transactions ADD COLUMN interest_amount DECIMAL(14,2) NULL AFTER investor_id');
+    }
+
+    // ---- Partner Capital / Advance categories (credit + debit mirror) ----
+    foreach ([
+        ['credit', 'Partner Capital', 'partner_capital', 21],
+        ['credit', 'Partner Advance', 'partner_advance', 22],
+        ['general', 'Partner Capital Withdrawal', 'partner_capital_withdrawal', 54],
+        ['general', 'Partner Advance Return', 'partner_advance_return', 55],
+    ] as [$catSection, $catName, $catSlug, $catSort]) {
+        $chkCat = $pdo->prepare("SELECT id FROM categories WHERE section=? AND slug=? LIMIT 1");
+        $chkCat->execute([$catSection, $catSlug]);
+        if (!$chkCat->fetchColumn()) {
+            $ins = $pdo->prepare("INSERT INTO categories (section, name, slug, sort_order) VALUES (?,?,?,?)");
+            $ins->execute([$catSection, $catName, $catSlug, $catSort]);
+        }
+    }
+
+    $partnerCols = $pdo->query("SHOW COLUMNS FROM partners")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('advance_amount', $partnerCols, true)) {
+        $pdo->exec('ALTER TABLE partners ADD COLUMN advance_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER invested_amount');
+    }
+
+    // ---- Bank loan mortgage document tracking ----
+    $loanCols = $pdo->query("SHOW COLUMNS FROM bank_loans")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('mortgage_noc_date', $loanCols, true)) {
+        $pdo->exec('ALTER TABLE bank_loans ADD COLUMN mortgage_noc_date DATE NULL AFTER end_date');
+    }
+    if (!in_array('reconveyance_date', $loanCols, true)) {
+        $pdo->exec('ALTER TABLE bank_loans ADD COLUMN reconveyance_date DATE NULL AFTER mortgage_noc_date');
+    }
+
+    // ---- Project land-record fields ----
+    $projectCols = $pdo->query("SHOW COLUMNS FROM projects")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ([
+        'deed_name' => 'ALTER TABLE projects ADD COLUMN deed_name VARCHAR(180) NULL AFTER end_date',
+        'party_name' => 'ALTER TABLE projects ADD COLUMN party_name VARCHAR(180) NULL AFTER deed_name',
+        'survey_no' => 'ALTER TABLE projects ADD COLUMN survey_no VARCHAR(80) NULL AFTER party_name',
+        'area_sqft' => 'ALTER TABLE projects ADD COLUMN area_sqft DECIMAL(12,2) NULL AFTER survey_no',
+        'address' => 'ALTER TABLE projects ADD COLUMN address TEXT NULL AFTER area_sqft',
+    ] as $col => $ddl) {
+        if (!in_array($col, $projectCols, true)) {
+            $pdo->exec($ddl);
+        }
+    }
 }

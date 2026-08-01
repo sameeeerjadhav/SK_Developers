@@ -104,8 +104,16 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
                     <?= $isCredit ? '+' : '−' ?><?= money($row['amount']) ?>
                   </td>
                   <td class="actions">
-                    <?php if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)): ?>
-                      <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/bookings.php')) ?>">Manage in Bookings</a>
+                    <?php
+                    $mgmtPage = null;
+                    if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
+                        $mgmtPage = ['bookings.php', 'Bookings'];
+                    } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
+                        $mgmtPage = ['investments.php', 'Investments'];
+                    }
+                    ?>
+                    <?php if ($mgmtPage): ?>
+                      <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/' . $mgmtPage[0])) ?>">Manage in <?= e($mgmtPage[1]) ?></a>
                     <?php else: ?>
                       <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
                       <?php if (can_delete()): ?>
@@ -205,8 +213,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/transactions.php?action=add');
         }
 
-        // Only attach partner on partner credits
-        if ($catRow['slug'] !== 'partner') {
+        // Only attach partner on partner-related categories
+        $partnerSlugs = ['partner', 'partner_capital', 'partner_advance', 'partner_capital_withdrawal', 'partner_advance_return'];
+        if (!in_array($catRow['slug'], $partnerSlugs, true)) {
             $partnerId = null;
         }
 
@@ -239,6 +248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($partnerId) {
             sync_partner_invested($pdo, $partnerId);
+            sync_partner_advance($pdo, $partnerId);
         }
 
         if ($projectId) {
@@ -269,6 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         audit_log($pdo, 'delete', 'transaction', $delId, 'Deleted transaction #' . $delId);
         if ($partnerId) {
             sync_partner_invested($pdo, (int) $partnerId);
+            sync_partner_advance($pdo, (int) $partnerId);
         }
         flash('success', 'Transaction deleted.');
         redirect('pages/transactions.php');
@@ -293,17 +304,19 @@ if ($action === 'add' || $action === 'edit') {
 
     // Categories for the Type (Credit/Debit) -> Category picker. Debit categories are grouped by
     // their original section (Land Purchase / Expense / General) via <optgroup> so nothing is hidden.
-    // Booking / Booking Refund are excluded here — recorded exclusively via the dedicated Bookings page.
+    // Booking/Booking Refund and Investment-related slugs are excluded — recorded exclusively via
+    // their own dedicated pages (Bookings, Investments) so investor/customer info stays attached.
     $creditCats = [];
     $debitGroups = ['land_purchase' => [], 'expense' => [], 'general' => []];
     $catGroupStmt = $pdo->query(
         "SELECT id, name, section, slug FROM categories
          WHERE section IN ('credit','land_purchase','expense')
-            OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit'))
+            OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit','partner_capital_withdrawal','partner_advance_return'))
          ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order"
     );
+    $excludedSlugs = ['booking', 'booking_refund', 'investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'];
     foreach ($catGroupStmt->fetchAll() as $c) {
-        if (in_array($c['slug'], ['booking', 'booking_refund'], true)) {
+        if (in_array($c['slug'], $excludedSlugs, true)) {
             continue;
         }
         if ($c['section'] === 'credit') {

@@ -71,6 +71,7 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
                       <tr>
                         <th class="select-col"></th>
                         <th>Date</th>
+                        <th>Investor</th>
                         <th>Project</th>
                         <th>Category</th>
                         <th>Type</th>
@@ -86,6 +87,7 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
                         <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
                           <td class="select-col"><input type="checkbox" class="bulk-checkbox" name="txn_ids[]" value="<?= (int) $row['id'] ?>"></td>
                           <td><span class="row-caret">▸</span><?= e($row['txn_date']) ?></td>
+                          <td><?= e($row['investor_name'] ?? '—') ?></td>
                           <td><?= e($row['project_name'] ?? '—') ?></td>
                           <td><?= e($row['category_name']) ?></td>
                           <td><?= txn_type_chip($row['txn_type']) ?></td>
@@ -95,12 +97,20 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
                           </td>
                         </tr>
                         <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
-                          <td colspan="7">
+                          <td colspan="8">
                             <table class="detail-table">
                               <tbody>
                                 <tr>
+                                  <td>Investor</td>
+                                  <td><?= e($row['investor_name'] ?? '—') ?><?= $row['investor_phone'] ? ' — ' . e($row['investor_phone']) : '' ?></td>
+                                </tr>
+                                <tr>
                                   <td>Category</td>
                                   <td><?= e($row['category_name']) ?></td>
+                                </tr>
+                                <tr>
+                                  <td>Interest</td>
+                                  <td><?= $row['interest_amount'] !== null ? money($row['interest_amount']) : '—' ?></td>
                                 </tr>
                                 <tr>
                                   <td>Reference no.</td>
@@ -132,7 +142,7 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
                               </div>
                             <?php endif; ?>
                             <div class="form-actions" style="margin-top:0.9rem">
-                              <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit transaction</a>
+                              <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/investments.php?action=edit&id=' . $row['id'])) ?>">Edit entry</a>
                             </div>
                           </td>
                         </tr>
@@ -162,13 +172,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
     $expStmt = $pdo->prepare(
         "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.slug AS category_slug,
-                ba.account_name, ba.bank_name, u.name AS created_by_name
+                ba.account_name, ba.bank_name, u.name AS created_by_name, inv.name AS investor_name
          FROM transactions t
          JOIN categories cat ON cat.id = t.category_id
          JOIN companies c ON c.id = t.company_id
          LEFT JOIN projects p ON p.id = t.project_id
          LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
          LEFT JOIN users u ON u.id = t.created_by
+         LEFT JOIN investors inv ON inv.id = t.investor_id
          WHERE t.id IN ($placeholders) AND " . INVESTMENT_CATEGORY_SQL . "
          ORDER BY t.txn_date DESC, t.id DESC"
     );
@@ -189,16 +200,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM so ₹ and names open correctly in Excel
-        fputcsv($out, ['Date', 'Segment', 'Company', 'Project', 'Type', 'Category', 'Amount', 'Reference No', 'Bank Account', 'Recorded By', 'Description']);
+        fputcsv($out, ['Date', 'Investor', 'Segment', 'Company', 'Project', 'Type', 'Category', 'Amount', 'Interest', 'Reference No', 'Bank Account', 'Recorded By', 'Description']);
         foreach ($exportRows as $r) {
             fputcsv($out, [
                 $r['txn_date'],
+                $r['investor_name'] ?? '',
                 investment_segment_label($r['category_slug']),
                 $r['company_name'],
                 $r['project_name'] ?? '',
                 ucfirst($r['txn_type']),
                 $r['category_name'],
                 number_format((float) $r['amount'], 2, '.', ''),
+                $r['interest_amount'] !== null ? number_format((float) $r['interest_amount'], 2, '.', '') : '',
                 $r['reference_no'] ?? '',
                 $r['account_name'] ? ($r['account_name'] . ' - ' . $r['bank_name']) : '',
                 $r['created_by_name'] ?? '',
@@ -206,9 +219,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             ]);
         }
         fputcsv($out, []);
-        fputcsv($out, ['', '', '', '', '', '', '', '', '', 'Total invested', number_format($exportIn, 2, '.', '')]);
-        fputcsv($out, ['', '', '', '', '', '', '', '', '', 'Total withdrawn', number_format($exportOut, 2, '.', '')]);
-        fputcsv($out, ['', '', '', '', '', '', '', '', '', 'Net', number_format($exportIn - $exportOut, 2, '.', '')]);
+        fputcsv($out, ['', '', '', '', '', '', '', 'Total invested', number_format($exportIn, 2, '.', '')]);
+        fputcsv($out, ['', '', '', '', '', '', '', 'Total withdrawn', number_format($exportOut, 2, '.', '')]);
+        fputcsv($out, ['', '', '', '', '', '', '', 'Net', number_format($exportIn - $exportOut, 2, '.', '')]);
         fclose($out);
         exit;
     }
@@ -258,6 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             <tr>
               <th>#</th>
               <th>Date</th>
+              <th>Investor</th>
               <th>Segment</th>
               <th>Company</th>
               <th>Project</th>
@@ -272,6 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
               <tr>
                 <td><?= $i + 1 ?></td>
                 <td><?= e(format_date($r['txn_date'])) ?></td>
+                <td><?= e($r['investor_name'] ?? '—') ?></td>
                 <td><?= e(investment_segment_label($r['category_slug'])) ?></td>
                 <td><?= e($r['company_name']) ?></td>
                 <td><?= e($r['project_name'] ?? '—') ?></td>
@@ -284,12 +299,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="7">TOTAL</td>
+              <td colspan="8">TOTAL</td>
               <td class="num"><?= number_format($exportIn, 2) ?></td>
               <td class="num"><?= number_format($exportOut, 2) ?></td>
             </tr>
             <tr>
-              <td colspan="7">NET INVESTMENT</td>
+              <td colspan="8">NET INVESTMENT</td>
               <td class="num" colspan="2"><?= money($exportIn - $exportOut) ?></td>
             </tr>
           </tfoot>
@@ -306,6 +321,298 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     exit;
 }
 
+$action = get('action', 'list');
+$allowedInvestmentSlugs = array_merge(INVESTMENT_FIXED_SLUGS, INVESTMENT_REGULAR_SLUGS);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action', '') === 'save_investment') {
+    verify_csrf();
+    $editId = (int) post('id', 0);
+    $investorId = (int) post('investor_id', 0);
+    $companyId = (int) post('company_id', 0);
+    $projectId = post('project_id') !== '' ? (int) post('project_id') : null;
+    $categoryId = (int) post('category_id', 0);
+    $amount = (float) post('amount', 0);
+    $interestAmount = post('interest_amount') !== '' ? (float) post('interest_amount') : null;
+    $txnDate = post('txn_date', date('Y-m-d'));
+    $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+    $reference = post('reference_no', '');
+    $description = post('description', '');
+    $investorName = trim(post('investor_name', ''));
+    $investorPhone = post('investor_phone', '');
+    $investorEmail = post('investor_email', '');
+    $investorAddress = post('investor_address', '');
+
+    $slugPh = implode(',', array_fill(0, count($allowedInvestmentSlugs), '?'));
+    $catStmt = $pdo->prepare("SELECT section FROM categories WHERE id = ? AND slug IN ($slugPh)");
+    $catStmt->execute(array_merge([$categoryId], $allowedInvestmentSlugs));
+    $catRow = $catStmt->fetch();
+
+    if ($investorName === '' || !$catRow || !$companyId || $amount <= 0) {
+        flash('error', 'Investor name, category, company and a positive amount are required.');
+        redirect('pages/investments.php?action=' . ($editId ? 'edit&id=' . $editId : 'add'));
+    }
+
+    if ($investorId) {
+        $pdo->prepare('UPDATE investors SET name=?, phone=?, email=?, address=? WHERE id=?')
+            ->execute([$investorName, $investorPhone, $investorEmail, $investorAddress, $investorId]);
+    } else {
+        $iIns = $pdo->prepare('INSERT INTO investors (name, phone, email, address) VALUES (?,?,?,?)');
+        $iIns->execute([$investorName, $investorPhone, $investorEmail, $investorAddress]);
+        $investorId = (int) $pdo->lastInsertId();
+    }
+
+    $txnType = $catRow['section'] === 'credit' ? 'credit' : 'debit';
+    $userId = current_user()['id'] ?? null;
+
+    if ($editId) {
+        $beforeStmt = $pdo->prepare('SELECT * FROM transactions WHERE id = ?');
+        $beforeStmt->execute([$editId]);
+        $before = $beforeStmt->fetch() ?: null;
+        $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, investor_id=?, interest_amount=?, txn_type=?, amount=?, txn_date=?, reference_no=?, description=? WHERE id=?');
+        $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $investorId, $interestAmount, $txnType, $amount, $txnDate, $reference, $description, $editId]);
+        audit_log($pdo, 'update', 'transaction', $editId, 'Updated investment #' . $editId . ' to ' . money($amount), $before, [
+            'amount' => $amount, 'txn_date' => $txnDate, 'category_id' => $categoryId, 'investor_id' => $investorId,
+        ]);
+        flash('success', 'Investment entry updated.');
+    } else {
+        $newId = create_transaction(
+            $pdo, $companyId, $categoryId, $txnType, $amount, $txnDate,
+            $projectId, $bankAccountId, null, $reference, $description,
+            $userId ? (int) $userId : null, $investorId, $interestAmount
+        );
+        audit_log($pdo, 'create', 'transaction', $newId, 'Created investment ' . $txnType . ' ' . money($amount) . ' for investor #' . $investorId);
+        flash('success', 'Investment entry added.');
+    }
+    redirect('pages/investments.php');
+}
+
+if ($action === 'add' || $action === 'edit') {
+    $txn = null;
+    if ($action === 'edit' && $id = (int) get('id', 0)) {
+        $stmt = $pdo->prepare('SELECT * FROM transactions WHERE id = ?');
+        $stmt->execute([$id]);
+        $txn = $stmt->fetch();
+        if (!$txn) {
+            flash('error', 'Entry not found.');
+            redirect('pages/investments.php');
+        }
+    }
+
+    $investors = $pdo->query('SELECT id, name, phone, email, address FROM investors ORDER BY name')->fetchAll();
+    $preInvestorId = (int) ($txn['investor_id'] ?? 0);
+    $investorDetailsMap = [];
+    foreach ($investors as $inv) {
+        $investorDetailsMap[(int) $inv['id']] = [
+            'name' => $inv['name'],
+            'phone' => $inv['phone'] ?: '',
+            'email' => $inv['email'] ?: '',
+            'address' => $inv['address'] ?: '',
+        ];
+    }
+    $preInvestor = $investorDetailsMap[$preInvestorId] ?? ['name' => '', 'phone' => '', 'email' => '', 'address' => ''];
+
+    $slugPh = implode(',', array_fill(0, count($allowedInvestmentSlugs), '?'));
+    $catStmt = $pdo->prepare("SELECT id, name, slug, section FROM categories WHERE slug IN ($slugPh)");
+    $catStmt->execute($allowedInvestmentSlugs);
+    $catMap = ['fixed' => ['credit' => [], 'debit' => []], 'regular' => ['credit' => [], 'debit' => []]];
+    $catBySlug = [];
+    foreach ($catStmt->fetchAll() as $c) {
+        $segment = in_array($c['slug'], INVESTMENT_FIXED_SLUGS, true) ? 'fixed' : 'regular';
+        $type = $c['section'] === 'credit' ? 'credit' : 'debit';
+        $catMap[$segment][$type][] = ['id' => (int) $c['id'], 'name' => $c['name']];
+        $catBySlug[$c['slug']] = ['id' => (int) $c['id'], 'segment' => $segment, 'type' => $type];
+    }
+
+    $preSegment = 'fixed';
+    $preType = 'credit';
+    $preCategoryId = 0;
+    if ($txn) {
+        $curCat = $pdo->prepare('SELECT slug FROM categories WHERE id = ?');
+        $curCat->execute([$txn['category_id']]);
+        $curSlug = $curCat->fetchColumn();
+        if ($curSlug && isset($catBySlug[$curSlug])) {
+            $preSegment = $catBySlug[$curSlug]['segment'];
+            $preType = $catBySlug[$curSlug]['type'];
+            $preCategoryId = $catBySlug[$curSlug]['id'];
+        }
+    } else {
+        $preCategoryId = $catMap[$preSegment][$preType][0]['id'] ?? 0;
+    }
+
+    $preCompany = (int) ($txn['company_id'] ?? 0);
+    $preProject = (int) ($txn['project_id'] ?? 0);
+
+    $pageTitle = $action === 'edit' ? 'Edit investment entry' : 'Add investment entry';
+    $pageSub = 'Investor, type and category, then company, amount and date.';
+    $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/investments.php')) . '">Back</a>';
+    require __DIR__ . '/../includes/header.php';
+    ?>
+    <div class="card" style="max-width:820px">
+      <form method="post" class="form-grid">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="save_investment">
+        <input type="hidden" name="id" value="<?= (int) ($txn['id'] ?? 0) ?>">
+
+        <div>
+          <label>Investor</label>
+          <select name="investor_id" id="investor_select">
+            <option value="">+ New investor</option>
+            <?php foreach ($investors as $inv): ?>
+              <option value="<?= (int) $inv['id'] ?>" <?= $preInvestorId === (int) $inv['id'] ? 'selected' : '' ?>>
+                <?= e($inv['name']) ?><?= $inv['phone'] ? ' — ' . e($inv['phone']) : '' ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div>
+          <label>Company</label>
+          <select name="company_id" id="company_id" required
+            data-company-projects="project_id"
+            data-company-accounts="bank_account_id"
+            data-projects-url="<?= e(base_url('api/projects.php')) ?>"
+            data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
+            <?= company_options($pdo, $preCompany) ?>
+          </select>
+        </div>
+
+        <div class="full">
+          <div class="form-grid" style="padding:0">
+            <div>
+              <label>Investor name</label>
+              <input type="text" name="investor_name" id="investor_name" required value="<?= e($preInvestor['name']) ?>">
+            </div>
+            <div>
+              <label>Phone</label>
+              <input type="text" name="investor_phone" id="investor_phone" value="<?= e($preInvestor['phone']) ?>">
+            </div>
+            <div>
+              <label>Email (optional)</label>
+              <input type="email" name="investor_email" id="investor_email" value="<?= e($preInvestor['email']) ?>">
+            </div>
+            <div class="full">
+              <label>Address (optional)</label>
+              <textarea name="investor_address" id="investor_address"><?= e($preInvestor['address']) ?></textarea>
+            </div>
+          </div>
+          <p class="muted" id="investor_fields_hint" style="font-size:0.78rem;margin:0.5rem 0 0;display:<?= $preInvestorId ? '' : 'none' ?>">
+            Editing these updates the selected investor's saved record.
+          </p>
+        </div>
+
+        <div>
+          <label>Project (optional)</label>
+          <select name="project_id" id="project_id">
+            <?= project_options($pdo, $preCompany ?: null, $preProject) ?>
+          </select>
+        </div>
+        <div>
+          <label>Investment type</label>
+          <select id="inv_segment">
+            <option value="fixed" <?= $preSegment === 'fixed' ? 'selected' : '' ?>>Fixed Investment</option>
+            <option value="regular" <?= $preSegment === 'regular' ? 'selected' : '' ?>>Regular Investment</option>
+          </select>
+        </div>
+        <div>
+          <label>Credit or debit</label>
+          <select id="inv_type">
+            <option value="credit" <?= $preType === 'credit' ? 'selected' : '' ?>>Credit (money in)</option>
+            <option value="debit" <?= $preType === 'debit' ? 'selected' : '' ?>>Debit (money out)</option>
+          </select>
+        </div>
+        <div class="full">
+          <label>Category</label>
+          <select name="category_id" id="inv_category" required></select>
+        </div>
+        <div>
+          <label>Amount (₹)</label>
+          <input type="number" step="0.01" min="0.01" name="amount" required value="<?= e((string) ($txn['amount'] ?? '')) ?>">
+        </div>
+        <div>
+          <label>Interest (₹, optional)</label>
+          <input type="number" step="0.01" min="0" name="interest_amount" value="<?= e((string) ($txn['interest_amount'] ?? '')) ?>">
+        </div>
+        <div>
+          <label>Date</label>
+          <input type="date" name="txn_date" required value="<?= e($txn['txn_date'] ?? date('Y-m-d')) ?>">
+        </div>
+        <div>
+          <label>Bank account (optional)</label>
+          <select name="bank_account_id" id="bank_account_id">
+            <?= bank_account_options($pdo, $preCompany ?: null, (int) ($txn['bank_account_id'] ?? 0)) ?>
+          </select>
+        </div>
+        <div>
+          <label>Reference no.</label>
+          <input type="text" name="reference_no" value="<?= e($txn['reference_no'] ?? '') ?>">
+        </div>
+        <div class="full">
+          <label>Description</label>
+          <textarea name="description"><?= e($txn['description'] ?? '') ?></textarea>
+        </div>
+        <div class="full form-actions">
+          <button class="btn btn-primary" type="submit">Save entry</button>
+        </div>
+      </form>
+    </div>
+    <script>
+      (function () {
+        var CATEGORY_MAP = <?= json_encode($catMap) ?>;
+        var INVESTOR_DETAILS = <?= json_encode($investorDetailsMap) ?>;
+        var preselectId = <?= (int) $preCategoryId ?>;
+
+        var investorSelect = document.getElementById('investor_select');
+        var nameEl = document.getElementById('investor_name');
+        var phoneEl = document.getElementById('investor_phone');
+        var emailEl = document.getElementById('investor_email');
+        var addressEl = document.getElementById('investor_address');
+        var hintEl = document.getElementById('investor_fields_hint');
+
+        var segmentEl = document.getElementById('inv_segment');
+        var typeEl = document.getElementById('inv_type');
+        var categoryEl = document.getElementById('inv_category');
+
+        function fillInvestorFields() {
+          var iid = investorSelect.value;
+          var d = INVESTOR_DETAILS[iid];
+          if (iid && d) {
+            nameEl.value = d.name || '';
+            phoneEl.value = d.phone || '';
+            emailEl.value = d.email || '';
+            addressEl.value = d.address || '';
+            hintEl.style.display = '';
+          } else {
+            nameEl.value = '';
+            phoneEl.value = '';
+            emailEl.value = '';
+            addressEl.value = '';
+            hintEl.style.display = 'none';
+          }
+        }
+
+        function populateCategories(selectId) {
+          categoryEl.innerHTML = '';
+          var options = (CATEGORY_MAP[segmentEl.value] && CATEGORY_MAP[segmentEl.value][typeEl.value]) || [];
+          options.forEach(function (opt) {
+            var o = document.createElement('option');
+            o.value = String(opt.id);
+            o.textContent = opt.name;
+            if (selectId && Number(selectId) === opt.id) o.selected = true;
+            categoryEl.appendChild(o);
+          });
+        }
+
+        investorSelect.addEventListener('change', fillInvestorFields);
+        segmentEl.addEventListener('change', function () { populateCategories(null); });
+        typeEl.addEventListener('change', function () { populateCategories(null); });
+
+        populateCategories(preselectId);
+      })();
+    </script>
+    <?php
+    require __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
 $filterCompany = (int) get('company_id', 0);
 $filterFrom = get('from', '');
 $filterTo = get('to', '');
@@ -317,23 +624,30 @@ if ($month !== '' || $year !== '') {
     }
 }
 
+$filterInvestor = (int) get('investor_id', 0);
+
 $pageTitle = 'Investment';
-$pageSub = 'Fixed, long-term capital and regular (daily/monthly) investment movement — by company.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=credit&slug=investment')) . '">+ Add investment</a>';
+$pageSub = 'Fixed, long-term capital and regular (daily/monthly) investment movement — by investor and company.';
+$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/investments.php?action=add')) . '">+ Add investment</a>';
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.slug AS category_slug,
-               ba.account_name, ba.bank_name, u.name AS created_by_name
+               ba.account_name, ba.bank_name, u.name AS created_by_name, inv.name AS investor_name, inv.phone AS investor_phone
         FROM transactions t
         JOIN categories cat ON cat.id = t.category_id
         JOIN companies c ON c.id = t.company_id
         LEFT JOIN projects p ON p.id = t.project_id
         LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
         LEFT JOIN users u ON u.id = t.created_by
+        LEFT JOIN investors inv ON inv.id = t.investor_id
         WHERE " . INVESTMENT_CATEGORY_SQL;
 $params = [];
 if ($filterCompany) {
     $sql .= ' AND t.company_id = ?';
     $params[] = $filterCompany;
+}
+if ($filterInvestor) {
+    $sql .= ' AND t.investor_id = ?';
+    $params[] = $filterInvestor;
 }
 apply_date_range($sql, $params, $filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null);
 $sql .= ' ORDER BY t.txn_date DESC, t.id DESC';
@@ -394,6 +708,15 @@ require __DIR__ . '/../includes/header.php';
       <option value="">All</option>
       <?php foreach ($pdo->query('SELECT id, name FROM companies ORDER BY type, name') as $co): ?>
         <option value="<?= (int)$co['id'] ?>" <?= $filterCompany === (int)$co['id'] ? 'selected' : '' ?>><?= e($co['name']) ?></option>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <div class="field">
+    <label>Investor</label>
+    <select name="investor_id" onchange="this.form.submit()">
+      <option value="">All</option>
+      <?php foreach ($pdo->query('SELECT id, name FROM investors ORDER BY name') as $inv): ?>
+        <option value="<?= (int) $inv['id'] ?>" <?= $filterInvestor === (int) $inv['id'] ? 'selected' : '' ?>><?= e($inv['name']) ?></option>
       <?php endforeach; ?>
     </select>
   </div>

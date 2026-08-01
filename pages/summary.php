@@ -55,6 +55,10 @@ require __DIR__ . '/../includes/header.php';
     <div class="stat-value"><?= money($overall['bank_balance']) ?></div>
   </div>
   <div class="stat-card">
+    <div class="stat-label">Cash Balance</div>
+    <div class="stat-value"><?= money($overall['cash_balance']) ?></div>
+  </div>
+  <div class="stat-card">
     <div class="stat-label">Assets</div>
     <div class="stat-value"><?= money($overall['assets']) ?></div>
   </div>

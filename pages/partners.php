@@ -3,8 +3,112 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-$action = get('action', 'list');
-$id = (int) get('id', 0);
+const PARTNER_ENTRY_MAP = [
+    'partner_capital' => ['credit', 'partner_capital', 'Capital added'],
+    'partner_capital_withdrawal' => ['general', 'partner_capital_withdrawal', 'Capital withdrawn'],
+    'partner_advance' => ['credit', 'partner_advance', 'Advance given'],
+    'partner_advance_return' => ['general', 'partner_advance_return', 'Advance returned'],
+];
+
+/** Renders the partner directory table with an expandable per-partner ledger + quick entry form. */
+function render_partner_rows(PDO $pdo, array $partners, array $partnerTxns): void
+{
+    if (!$partners) {
+        echo '<div class="empty"><strong>No partners</strong><p>Add partners linked to main or sub companies.</p></div>';
+        return;
+    }
+    ?>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Name</th><th>Company</th><th>Contact</th><th class="num">Share %</th>
+            <th class="num">Capital</th><th class="num">Advance</th><th class="actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($partners as $p):
+            $detailId = 'partner-detail-' . $p['id'];
+            $rows = $partnerTxns[(int) $p['id']] ?? [];
+          ?>
+            <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
+              <td><span class="row-caret">▸</span><strong><?= e($p['name']) ?></strong></td>
+              <td><?= e($p['company_name'] ?? '—') ?></td>
+              <td><?= e($p['phone'] ?: $p['email'] ?: '—') ?></td>
+              <td class="num"><?= $p['share_percent'] !== null ? e((string) $p['share_percent']) . '%' : '—' ?></td>
+              <td class="num"><?= money($p['invested_amount']) ?></td>
+              <td class="num"><?= money($p['advance_amount']) ?></td>
+              <td class="actions">
+                <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/partners.php?action=edit&id=' . $p['id'])) ?>">Edit</a>
+                <form method="post" style="display:inline" onsubmit="return confirm('Delete partner?')">
+                  <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
+                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                </form>
+              </td>
+            </tr>
+            <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
+              <td colspan="7">
+                <div class="grid-2" style="align-items:flex-start;gap:1rem">
+                  <div class="table-wrap">
+                    <table class="data">
+                      <thead>
+                        <tr><th>Date</th><th>Entry</th><th>Bank account</th><th class="num">Amount</th></tr>
+                      </thead>
+                      <tbody>
+                        <?php if (!$rows): ?>
+                          <tr><td colspan="4" class="muted">No capital/advance entries yet.</td></tr>
+                        <?php else: foreach ($rows as $r): ?>
+                          <tr>
+                            <td><?= e(format_date($r['txn_date'])) ?></td>
+                            <td><?= e($r['category_name']) ?></td>
+                            <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
+                            <td class="num <?= $r['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>"><?= money($r['amount']) ?></td>
+                          </tr>
+                        <?php endforeach; endif; ?>
+                      </tbody>
+                    </table>
+                  </div>
+                  <form method="post" class="form-grid" style="padding:0">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="record">
+                    <input type="hidden" name="partner_id" value="<?= (int) $p['id'] ?>">
+                    <div class="full">
+                      <label>Entry type</label>
+                      <select name="entry_type" required>
+                        <?php foreach (PARTNER_ENTRY_MAP as $slug => $meta): ?>
+                          <option value="<?= e($slug) ?>"><?= e($meta[2]) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                    <div>
+                      <label>Amount (₹)</label>
+                      <input type="number" step="0.01" min="0.01" name="amount" required>
+                    </div>
+                    <div>
+                      <label>Date</label>
+                      <input type="date" name="txn_date" required value="<?= e(date('Y-m-d')) ?>">
+                    </div>
+                    <div class="full">
+                      <label>Bank account (optional)</label>
+                      <select name="bank_account_id"><?= bank_account_options($pdo, (int) ($p['company_id'] ?? 0) ?: null) ?></select>
+                    </div>
+                    <div class="full">
+                      <label>Notes</label>
+                      <input type="text" name="description">
+                    </div>
+                    <div class="full form-actions" style="justify-content:flex-start">
+                      <button class="btn btn-primary btn-sm" type="submit" <?= $p['company_id'] ? '' : 'disabled title="Assign a company to this partner first"' ?>>Record entry</button>
+                    </div>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
@@ -15,11 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone = post('phone', '');
         $email = post('email', '');
         $share = post('share_percent') !== '' ? (float) post('share_percent') : null;
-        $invested = (float) post('invested_amount', 0);
         $notes = post('notes', '');
-        $projectId = post('project_id') !== '' ? (int) post('project_id') : null;
-        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
-        $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
         if ($name === '') {
             flash('error', 'Partner name is required.');
@@ -28,37 +128,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($editId) {
             $stmt = $pdo->prepare('UPDATE partners SET company_id=?, name=?, phone=?, email=?, share_percent=?, notes=? WHERE id=?');
             $stmt->execute([$companyId, $name, $phone, $email, $share, $notes, $editId]);
-            sync_partner_invested($pdo, $editId);
             flash('success', 'Partner updated.');
         } else {
-            $stmt = $pdo->prepare('INSERT INTO partners (company_id, name, phone, email, share_percent, invested_amount, notes) VALUES (?,?,?,?,?,0,?)');
+            $stmt = $pdo->prepare('INSERT INTO partners (company_id, name, phone, email, share_percent, invested_amount, advance_amount, notes) VALUES (?,?,?,?,?,0,0,?)');
             $stmt->execute([$companyId, $name, $phone, $email, $share, $notes]);
-            $newId = (int) $pdo->lastInsertId();
-
-            if ($postToLedger && $invested > 0 && $companyId) {
-                $catId = category_id_by_slug($pdo, 'credit', 'partner');
-                if ($catId) {
-                    create_transaction(
-                        $pdo,
-                        $companyId,
-                        $catId,
-                        'credit',
-                        $invested,
-                        date('Y-m-d'),
-                        $projectId,
-                        $bankAccountId,
-                        $newId,
-                        null,
-                        'Partner capital — ' . $name,
-                        current_user()['id'] ?? null
-                    );
-                    sync_partner_invested($pdo, $newId);
-                }
-            } elseif ($invested > 0) {
-                $pdo->prepare('UPDATE partners SET invested_amount = ? WHERE id = ?')->execute([$invested, $newId]);
-            }
             flash('success', 'Partner added.');
         }
+        redirect('pages/partners.php');
+    }
+    if ($postAction === 'record') {
+        $partnerId = (int) post('partner_id', 0);
+        $entryType = post('entry_type', '');
+        $amount = (float) post('amount', 0);
+        $txnDate = post('txn_date', date('Y-m-d'));
+        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $description = post('description', '');
+
+        if (!$partnerId || !isset(PARTNER_ENTRY_MAP[$entryType]) || $amount <= 0) {
+            flash('error', 'Partner, entry type and a positive amount are required.');
+            redirect('pages/partners.php');
+        }
+        $pStmt = $pdo->prepare('SELECT company_id, name FROM partners WHERE id = ?');
+        $pStmt->execute([$partnerId]);
+        $partnerRow = $pStmt->fetch();
+        if (!$partnerRow || !$partnerRow['company_id']) {
+            flash('error', 'Partner must have a company assigned before recording entries.');
+            redirect('pages/partners.php');
+        }
+        [$section, $slug, $label] = PARTNER_ENTRY_MAP[$entryType];
+        $catId = category_id_by_slug($pdo, $section, $slug);
+        $txnType = $section === 'credit' ? 'credit' : 'debit';
+        $txnId = create_transaction(
+            $pdo, (int) $partnerRow['company_id'], (int) $catId, $txnType, $amount, $txnDate,
+            null, $bankAccountId, $partnerId, null, $description ?: ($label . ' — ' . $partnerRow['name']),
+            current_user()['id'] ?? null
+        );
+        audit_log($pdo, 'create', 'transaction', $txnId, $label . ': ' . $partnerRow['name'] . ' — ' . money($amount));
+        sync_partner_invested($pdo, $partnerId);
+        sync_partner_advance($pdo, $partnerId);
+        flash('success', 'Entry recorded.');
         redirect('pages/partners.php');
     }
     if ($postAction === 'delete') {
@@ -68,6 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/partners.php');
     }
 }
+
+$action = get('action', 'list');
+$id = (int) get('id', 0);
 
 if ($action === 'add' || $action === 'edit') {
     $row = null;
@@ -84,20 +195,16 @@ if ($action === 'add' || $action === 'edit') {
       <form method="post" class="form-grid">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
-        <input type="hidden" name="id" value="<?= (int)($row['id'] ?? 0) ?>">
+        <input type="hidden" name="id" value="<?= (int) ($row['id'] ?? 0) ?>">
         <div>
           <label>Company</label>
-          <select name="company_id"
-            data-company-projects="project_id"
-            data-company-accounts="bank_account_id"
-            data-projects-url="<?= e(base_url('api/projects.php')) ?>"
-            data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
-            <?= company_options($pdo, (int)($row['company_id'] ?? 0)) ?>
+          <select name="company_id">
+            <?= company_options($pdo, (int) ($row['company_id'] ?? 0)) ?>
           </select>
         </div>
         <div>
           <label>Share %</label>
-          <input type="number" step="0.01" name="share_percent" value="<?= e((string)($row['share_percent'] ?? '')) ?>">
+          <input type="number" step="0.01" name="share_percent" value="<?= e((string) ($row['share_percent'] ?? '')) ?>">
         </div>
         <div class="full">
           <label>Name</label>
@@ -111,25 +218,16 @@ if ($action === 'add' || $action === 'edit') {
           <label>Email</label>
           <input type="email" name="email" value="<?= e($row['email'] ?? '') ?>">
         </div>
+        <?php if ($row): ?>
         <div>
-          <label>Invested amount (₹)</label>
-          <input type="number" step="0.01" name="invested_amount" value="<?= e((string)($row['invested_amount'] ?? '0')) ?>" <?= $row ? 'readonly' : '' ?>>
-          <?php if ($row): ?><p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">Synced from Partner credit transactions.</p><?php endif; ?>
-        </div>
-        <?php if (!$row): ?>
-        <div>
-          <label>Project (optional)</label>
-          <select name="project_id" id="project_id"><?= project_options($pdo, (int)($row['company_id'] ?? 0) ?: null) ?></select>
+          <label>Capital (₹)</label>
+          <input type="text" value="<?= e(money($row['invested_amount'])) ?>" readonly>
+          <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">Synced from Capital entries. Record entries from the partner list.</p>
         </div>
         <div>
-          <label>Bank account (optional)</label>
-          <select name="bank_account_id" id="bank_account_id"><?= bank_account_options($pdo, (int)($row['company_id'] ?? 0) ?: null) ?></select>
-        </div>
-        <div class="full highlight-box">
-          <label style="display:flex;gap:0.5rem;align-items:flex-start;margin:0;font-weight:600;color:var(--text)">
-            <input type="checkbox" name="post_to_ledger" value="1" checked style="width:auto;margin-top:0.2rem">
-            <span>Post invested amount as <strong>Credit → Partner</strong> transaction.</span>
-          </label>
+          <label>Advance (₹)</label>
+          <input type="text" value="<?= e(money($row['advance_amount'])) ?>" readonly>
+          <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">Synced from Advance entries. Record entries from the partner list.</p>
         </div>
         <?php endif; ?>
         <div class="full">
@@ -143,43 +241,39 @@ if ($action === 'add' || $action === 'edit') {
 }
 
 $pageTitle = 'Partners';
-$pageSub = 'Partner directory and capital contributions.';
+$pageSub = 'Partner directory, capital and advances.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/partners.php?action=add')) . '">+ Add partner</a>';
 $partners = $pdo->query('SELECT pr.*, c.name AS company_name FROM partners pr LEFT JOIN companies c ON c.id = pr.company_id ORDER BY pr.name')->fetchAll();
-$partnerCredits = sum_by_category_slug($pdo, 'credit', 'partner');
+
+$partnerTxns = [];
+$partnerIds = array_column($partners, 'id');
+if ($partnerIds) {
+    $in = implode(',', array_fill(0, count($partnerIds), '?'));
+    $txnStmt = $pdo->prepare(
+        "SELECT t.*, c.name AS category_name, c.slug AS category_slug, ba.account_name, ba.bank_name
+         FROM transactions t
+         JOIN categories c ON c.id = t.category_id
+         LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+         WHERE t.partner_id IN ($in) AND c.slug IN ('partner','partner_capital','partner_advance','partner_capital_withdrawal','partner_advance_return')
+         ORDER BY t.txn_date DESC, t.id DESC"
+    );
+    $txnStmt->execute($partnerIds);
+    foreach ($txnStmt->fetchAll() as $t) {
+        $partnerTxns[(int) $t['partner_id']][] = $t;
+    }
+}
+
+$totalCapital = (float) $pdo->query('SELECT COALESCE(SUM(invested_amount),0) FROM partners')->fetchColumn();
+$totalAdvance = (float) $pdo->query('SELECT COALESCE(SUM(advance_amount),0) FROM partners')->fetchColumn();
+
 require __DIR__ . '/../includes/header.php';
 ?>
-<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
-  <div class="stat-card"><div class="stat-label">Partner credits (ledger)</div><div class="stat-value"><?= money($partnerCredits) ?></div></div>
+<div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+  <div class="stat-card"><div class="stat-label">Total capital</div><div class="stat-value"><?= money($totalCapital) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Total advances</div><div class="stat-value"><?= money($totalAdvance) ?></div></div>
   <div class="stat-card"><div class="stat-label">Registered partners</div><div class="stat-value"><?= count($partners) ?></div></div>
 </div>
 <div class="card">
-  <?php if (!$partners): ?>
-    <div class="empty"><strong>No partners</strong><p>Add partners linked to main or sub companies.</p></div>
-  <?php else: ?>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Name</th><th>Company</th><th>Contact</th><th class="num">Share %</th><th class="num">Invested</th><th class="actions">Actions</th></tr></thead>
-        <tbody>
-          <?php foreach ($partners as $p): ?>
-            <tr>
-              <td><strong><?= e($p['name']) ?></strong></td>
-              <td><?= e($p['company_name'] ?? '—') ?></td>
-              <td><?= e($p['phone'] ?: $p['email'] ?: '—') ?></td>
-              <td class="num"><?= $p['share_percent'] !== null ? e((string)$p['share_percent']) . '%' : '—' ?></td>
-              <td class="num"><?= money($p['invested_amount']) ?></td>
-              <td class="actions">
-                <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/partners.php?action=edit&id=' . $p['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" onsubmit="return confirm('Delete partner?')">
-                  <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$p['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
-                </form>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
-  <?php endif; ?>
+  <?php render_partner_rows($pdo, $partners, $partnerTxns); ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>
