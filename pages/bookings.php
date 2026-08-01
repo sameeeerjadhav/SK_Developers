@@ -10,6 +10,149 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $postAction = post('action', '');
 
+    if (in_array(post('export_action', ''), ['csv', 'pdf'], true)) {
+        $exportAction = post('export_action');
+        $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['payment_ids'] ?? []), fn($id) => $id > 0)));
+
+        if (!$selectedIds) {
+            flash('error', 'Select at least one payment to export.');
+            redirect('pages/bookings.php');
+        }
+
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        $expStmt = $pdo->prepare(
+            "SELECT bp.*, cu.name AS customer_name, c.name AS company_name, b.property_type, b.plot_no
+             FROM booking_payments bp
+             JOIN bookings b ON b.id = bp.booking_id
+             JOIN customers cu ON cu.id = b.customer_id
+             JOIN companies c ON c.id = b.company_id
+             WHERE bp.id IN ($placeholders)
+             ORDER BY bp.payment_date DESC, bp.id DESC"
+        );
+        $expStmt->execute($selectedIds);
+        $exportRows = $expStmt->fetchAll();
+
+        if (!$exportRows) {
+            flash('error', 'Selected payments were not found.');
+            redirect('pages/bookings.php');
+        }
+
+        $exportReceived = array_sum(array_map(fn($r) => $r['payment_type'] === 'received' ? (float) $r['amount'] : 0, $exportRows));
+        $exportReturned = array_sum(array_map(fn($r) => $r['payment_type'] === 'returned' ? (float) $r['amount'] : 0, $exportRows));
+
+        $propertyLabel = fn($r) => $r['property_type'] === 'plot'
+            ? ('Plot ' . ($r['plot_no'] ?: '—'))
+            : ucwords(str_replace('_', ' ', $r['property_type']));
+
+        if ($exportAction === 'csv') {
+            $filename = 'booking_payments_' . date('Ymd_His') . '.csv';
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, ['Date', 'Customer', 'Company', 'Property', 'Type', 'Amount', 'Notes']);
+            foreach ($exportRows as $r) {
+                fputcsv($out, [
+                    $r['payment_date'],
+                    $r['customer_name'],
+                    $r['company_name'],
+                    $propertyLabel($r),
+                    $r['payment_type'] === 'received' ? 'Received' : 'Returned',
+                    number_format((float) $r['amount'], 2, '.', ''),
+                    $r['notes'] ?? '',
+                ]);
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['', '', '', '', 'Total received', number_format($exportReceived, 2, '.', ''), '']);
+            fputcsv($out, ['', '', '', '', 'Total returned', number_format($exportReturned, 2, '.', ''), '']);
+            fclose($out);
+            exit;
+        }
+
+        // PDF: formal print-ready report sheet, same pattern as Investments/Loan Repayments.
+        $entryWord = count($exportRows) === 1 ? 'entry' : 'entries';
+        $datesCovered = array_unique(array_map(fn($r) => $r['payment_date'], $exportRows));
+        sort($datesCovered);
+        $rangeLabel = count($datesCovered) > 1
+            ? format_date($datesCovered[0]) . ' – ' . format_date(end($datesCovered))
+            : format_date($datesCovered[0] ?? null);
+
+        $pageTitle = 'Booking payments export';
+        $pageSub = count($exportRows) . ' selected ' . $entryWord . '.';
+        $pageActions = '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>';
+        require __DIR__ . '/../includes/header.php';
+        ?>
+        <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
+        <div class="print-sheet card">
+          <div class="print-header report-header">
+            <div>
+              <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
+              <div class="report-doc-title">Booking Payments Report</div>
+              <div class="print-meta report-meta" style="text-align:left"><?= count($exportRows) ?> <?= e($entryWord) ?> · <?= e($rangeLabel) ?></div>
+            </div>
+            <div class="print-meta report-meta">Generated <?= e(date('d M Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
+          </div>
+
+          <div class="report-summary">
+            <div>
+              <div class="label">Total received</div>
+              <div class="value text-success"><?= money($exportReceived) ?></div>
+            </div>
+            <div>
+              <div class="label">Total returned</div>
+              <div class="value text-danger"><?= money($exportReturned) ?></div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Customer</th>
+                  <th>Company</th>
+                  <th>Property</th>
+                  <th>Type</th>
+                  <th class="num">Amount (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($exportRows as $i => $r): ?>
+                  <tr>
+                    <td><?= $i + 1 ?></td>
+                    <td><?= e(format_date($r['payment_date'])) ?></td>
+                    <td><?= e($r['customer_name']) ?></td>
+                    <td><?= e($r['company_name']) ?></td>
+                    <td><?= e($propertyLabel($r)) ?></td>
+                    <td><?= $r['payment_type'] === 'received' ? 'Received' : 'Returned' ?></td>
+                    <td class="num"><?= number_format((float) $r['amount'], 2) ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="5">TOTAL RECEIVED</td>
+                  <td class="num" colspan="2"><?= number_format($exportReceived, 2) ?></td>
+                </tr>
+                <tr>
+                  <td colspan="5">TOTAL RETURNED</td>
+                  <td class="num" colspan="2"><?= number_format($exportReturned, 2) ?></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div class="report-footnote">
+            <p>This is a system-generated report from the Sai Kuber Developers finance system. Figures reflect the payments selected at export time.</p>
+            <p>Confidential — internal use only.</p>
+          </div>
+        </div>
+        <?php
+        require __DIR__ . '/../includes/footer.php';
+        exit;
+    }
+
     if ($postAction === 'save_booking') {
         $editId = (int) post('id', 0);
         $customerId = (int) post('customer_id', 0);
@@ -451,6 +594,15 @@ $filterCompany = (int) get('company_id', 0);
 $filterStatus = get('status', '');
 $q = get('q', '');
 $expandId = (int) get('expand', 0);
+$filterFrom = get('from', '');
+$filterTo = get('to', '');
+[$fromMonth, $toMonth, $month, $year] = period_from_request();
+if ($month !== '' || $year !== '') {
+    if ($filterFrom === '' && $filterTo === '') {
+        $filterFrom = $fromMonth ?: '';
+        $filterTo = $toMonth ?: '';
+    }
+}
 
 $pageTitle = 'Bookings';
 $pageSub = 'Plot, flat and row house bookings — customer info stays saved for future payments.';
@@ -483,8 +635,12 @@ $paymentsByBooking = [];
 if ($bookings) {
     $bookingIds = array_map(fn($b) => (int) $b['id'], $bookings);
     $ph = implode(',', array_fill(0, count($bookingIds), '?'));
-    $payStmt = $pdo->prepare("SELECT * FROM booking_payments WHERE booking_id IN ($ph) ORDER BY payment_date DESC, id DESC");
-    $payStmt->execute($bookingIds);
+    $paySql = "SELECT * FROM booking_payments WHERE booking_id IN ($ph)";
+    $payParams = $bookingIds;
+    apply_date_range($paySql, $payParams, $filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, 'payment_date');
+    $paySql .= ' ORDER BY payment_date DESC, id DESC';
+    $payStmt = $pdo->prepare($paySql);
+    $payStmt->execute($payParams);
     foreach ($payStmt->fetchAll() as $pay) {
         $paymentsByBooking[(int) $pay['booking_id']][] = $pay;
     }
@@ -538,11 +694,37 @@ require __DIR__ . '/../includes/header.php';
       <option value="cancelled" <?= $filterStatus === 'cancelled' ? 'selected' : '' ?>>Cancelled</option>
     </select>
   </div>
+  <?= period_filter_fields($month, $year) ?>
+  <div class="field">
+    <label>From</label>
+    <input type="date" name="from" value="<?= e($filterFrom) ?>">
+  </div>
+  <div class="field">
+    <label>To</label>
+    <input type="date" name="to" value="<?= e($filterTo) ?>">
+  </div>
   <div class="field" style="flex:0">
     <label>&nbsp;</label>
     <button class="btn btn-outline" type="submit">Filter</button>
   </div>
 </form>
+<p class="muted" style="font-size:0.78rem;margin:-0.5rem 0 1rem">Date filters apply to the payment history shown per booking (used for export) — totals above always reflect the full history.</p>
+<?php if ($bookings): ?>
+<form id="bookingsExportForm" class="bulk-export-form" method="post">
+  <?= csrf_field() ?>
+  <div class="export-toolbar no-print">
+    <label class="select-all-label">
+      <input type="checkbox" class="select-all-toggle">
+      Select all payments
+    </label>
+    <span class="selected-count muted">0 selected</span>
+    <div class="export-actions">
+      <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
+      <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
+    </div>
+  </div>
+</form>
+<?php endif; ?>
 <div class="card">
   <?php if (!$bookings): ?>
     <div class="empty"><strong>No bookings yet</strong><p>Create a booking to start tracking a customer's plot, flat or row house sale.</p></div>
@@ -602,12 +784,13 @@ require __DIR__ . '/../includes/header.php';
                 <?php if ($payments): ?>
                   <div class="table-wrap" style="margin-bottom:1rem">
                     <table class="data">
-                      <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead>
+                      <thead><tr><th class="select-col"></th><th>Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead>
                       <tbody>
                         <?php foreach ($payments as $pay):
                           $payEditId = 'pay-edit-' . $pay['id'];
                         ?>
                           <tr class="row-clickable" data-row-toggle="<?= e($payEditId) ?>" title="Click to edit">
+                            <td class="select-col"><input type="checkbox" class="bulk-checkbox" form="bookingsExportForm" name="payment_ids[]" value="<?= (int) $pay['id'] ?>"></td>
                             <td><span class="row-caret">▸</span><?= e(format_date($pay['payment_date'])) ?></td>
                             <td><?= $pay['payment_type'] === 'received' ? '<span class="chip chip-success">Received</span>' : '<span class="chip chip-danger">Returned</span>' ?></td>
                             <td class="num <?= $pay['payment_type'] === 'received' ? 'text-success' : 'text-danger' ?>">
@@ -616,7 +799,7 @@ require __DIR__ . '/../includes/header.php';
                             <td><?= e($pay['notes'] ?: '') ?></td>
                           </tr>
                           <tr class="row-detail" id="<?= e($payEditId) ?>" hidden>
-                            <td colspan="4">
+                            <td colspan="5">
                               <form method="post" class="form-grid" style="padding:0">
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="edit_payment">
