@@ -136,6 +136,25 @@ if ($action === 'add' || $action === 'edit') {
     $preProject = (int) ($txn['project_id'] ?? $filterProject ?: 0);
     $selectedCategory = (int) ($txn['category_id'] ?? $preCategory ?: 0);
 
+    // Categories grouped by section for the Section -> Category picker (avoids one long flat dropdown)
+    $catGroups = ['credit' => [], 'land_purchase' => [], 'expense' => [], 'general' => []];
+    $catGroupStmt = $pdo->query(
+        "SELECT id, name, section FROM categories
+         WHERE section IN ('credit','land_purchase','expense')
+            OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit'))
+         ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order"
+    );
+    foreach ($catGroupStmt->fetchAll() as $c) {
+        $catGroups[$c['section']][] = ['id' => (int) $c['id'], 'name' => $c['name']];
+    }
+    $selectedSection = 'credit';
+    if ($selectedCategory) {
+        $secStmt = $pdo->prepare('SELECT section FROM categories WHERE id = ?');
+        $secStmt->execute([$selectedCategory]);
+        $selectedSection = $secStmt->fetchColumn() ?: 'credit';
+    }
+    $sectionLabels = ['credit' => 'Credit', 'land_purchase' => 'Land Purchase', 'expense' => 'Expense', 'general' => 'General'];
+
     $pageTitle = $action === 'edit' ? 'Edit transaction' : 'Add transaction';
     $pageSub = 'Record credit (in) or debit (land / expense) against a company and project.';
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/transactions.php')) . '">Back</a>';
@@ -164,11 +183,17 @@ if ($action === 'add' || $action === 'edit') {
             <?= project_options($pdo, $preCompany ?: null, $preProject) ?>
           </select>
         </div>
+        <div>
+          <label>Section</label>
+          <select id="txn_section">
+            <?php foreach ($sectionLabels as $secKey => $secLabel): ?>
+              <option value="<?= e($secKey) ?>" <?= $selectedSection === $secKey ? 'selected' : '' ?>><?= e($secLabel) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
         <div class="full">
           <label>Category</label>
-          <select name="category_id" required>
-            <?= category_options($pdo, null, $selectedCategory) ?>
-          </select>
+          <select name="category_id" id="txn_category_id" required></select>
         </div>
         <div>
           <label>Amount (₹)</label>
@@ -225,6 +250,38 @@ if ($action === 'add' || $action === 'edit') {
         </div>
       </form>
     </div>
+    <script>
+      (function () {
+        var CATEGORY_GROUPS = <?= json_encode($catGroups) ?>;
+        var preselectId = <?= (int) $selectedCategory ?>;
+        var sectionEl = document.getElementById('txn_section');
+        var categoryEl = document.getElementById('txn_category_id');
+
+        function populateCategories(selectId) {
+          var options = CATEGORY_GROUPS[sectionEl.value] || [];
+          categoryEl.innerHTML = '';
+          var placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = 'Select category';
+          categoryEl.appendChild(placeholder);
+          var matched = false;
+          options.forEach(function (opt) {
+            var o = document.createElement('option');
+            o.value = String(opt.id);
+            o.textContent = opt.name;
+            if (selectId && Number(selectId) === opt.id) {
+              o.selected = true;
+              matched = true;
+            }
+            categoryEl.appendChild(o);
+          });
+          if (!matched) placeholder.selected = true;
+        }
+
+        sectionEl.addEventListener('change', function () { populateCategories(null); });
+        populateCategories(preselectId);
+      })();
+    </script>
     <?php
     require __DIR__ . '/../includes/footer.php';
     exit;

@@ -327,30 +327,6 @@ function project_options(PDO $pdo, ?int $companyId = null, ?int $selected = null
     return $html;
 }
 
-function category_options(PDO $pdo, ?string $section = null, ?int $selected = null): string
-{
-    if ($section) {
-        $stmt = $pdo->prepare('SELECT id, name, section FROM categories WHERE section = ? ORDER BY sort_order');
-        $stmt->execute([$section]);
-    } else {
-        $stmt = $pdo->query("SELECT id, name, section FROM categories WHERE section IN ('credit','land_purchase','expense') OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit')) ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order");
-    }
-    $rows = $stmt->fetchAll();
-    $html = '<option value="">Select category</option>';
-    $labels = [
-        'credit' => 'Credit',
-        'land_purchase' => 'Land Purchase',
-        'expense' => 'Expense',
-        'general' => 'General',
-    ];
-    foreach ($rows as $row) {
-        $sel = ((int) $row['id'] === (int) $selected) ? ' selected' : '';
-        $group = $labels[$row['section']] ?? $row['section'];
-        $html .= '<option value="' . (int) $row['id'] . '"' . $sel . '>[' . e($group) . '] ' . e($row['name']) . '</option>';
-    }
-    return $html;
-}
-
 function bank_account_options(PDO $pdo, ?int $companyId = null, ?int $selected = null): string
 {
     if ($companyId) {
