@@ -71,8 +71,8 @@ function nav_icon(string $name): string
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="<?= e(base_url('assets/css/app.css')) ?>">
-  <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
+  <link rel="stylesheet" href="<?= e(base_url('assets/css/app.css')) ?>?v=<?= (int) (@filemtime(__DIR__ . '/../assets/css/app.css') ?: time()) ?>">
+  <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>?v=<?= (int) (@filemtime(__DIR__ . '/../assets/css/print.css') ?: time()) ?>">
 </head>
 <body>
 <div class="app-shell">
