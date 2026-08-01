@@ -6,15 +6,16 @@ require_login();
 $filterCompany = (int) get('company_id', 0);
 [$from, $to, $month, $year] = period_from_request();
 $pageTitle = 'Investment';
-$pageSub = 'All investment credits across companies and projects.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=credit&slug=investment')) . '">+ Add investment</a>';
+$pageSub = 'All investment credits and withdrawals across companies and projects.';
+$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=credit&slug=investment')) . '">+ Add investment</a>'
+    . '<a class="btn btn-outline" href="' . e(base_url('pages/transactions.php?action=add&section=general&slug=investment_withdrawal')) . '">+ Add withdrawal</a>';
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name
         FROM transactions t
         JOIN categories cat ON cat.id = t.category_id
         JOIN companies c ON c.id = t.company_id
         LEFT JOIN projects p ON p.id = t.project_id
-        WHERE cat.section = 'credit' AND cat.slug = 'investment'";
+        WHERE ((cat.section = 'credit' AND cat.slug = 'investment') OR (cat.section = 'general' AND cat.slug = 'investment_withdrawal'))";
 $params = [];
 if ($filterCompany) {
     $sql .= ' AND t.company_id = ?';
@@ -25,14 +26,23 @@ $sql .= ' ORDER BY t.txn_date DESC';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
-$total = array_sum(array_map(fn($r) => (float)$r['amount'], $rows));
+$totalIn = array_sum(array_map(fn($r) => $r['txn_type'] === 'credit' ? (float)$r['amount'] : 0, $rows));
+$totalOut = array_sum(array_map(fn($r) => $r['txn_type'] === 'debit' ? (float)$r['amount'] : 0, $rows));
 
 require __DIR__ . '/../includes/header.php';
 ?>
-<div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+<div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
   <div class="stat-card">
-    <div class="stat-label">Total investment</div>
-    <div class="stat-value"><?= money($total) ?></div>
+    <div class="stat-label">Total invested</div>
+    <div class="stat-value text-success"><?= money($totalIn) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total withdrawn</div>
+    <div class="stat-value text-danger"><?= money($totalOut) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Net investment</div>
+    <div class="stat-value <?= ($totalIn - $totalOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($totalIn - $totalOut) ?></div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Entries</div>
@@ -53,19 +63,22 @@ require __DIR__ . '/../includes/header.php';
 </form>
 <div class="card">
   <?php if (!$rows): ?>
-    <div class="empty"><strong>No investments yet</strong><p>Add a transaction with category Credit → Investment.</p></div>
+    <div class="empty"><strong>No investments yet</strong><p>Add an investment (credit) or a withdrawal (debit) entry.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
-        <thead><tr><th>Date</th><th>Company</th><th>Project</th><th>Note</th><th class="num">Amount</th></tr></thead>
+        <thead><tr><th>Date</th><th>Company</th><th>Project</th><th>Type</th><th>Note</th><th class="num">Amount</th></tr></thead>
         <tbody>
           <?php foreach ($rows as $row): ?>
             <tr>
               <td><?= e($row['txn_date']) ?></td>
               <td><?= e($row['company_name']) ?></td>
               <td><?= e($row['project_name'] ?? '—') ?></td>
+              <td><?= txn_type_chip($row['txn_type']) ?></td>
               <td><?= e($row['description'] ?? '') ?></td>
-              <td class="num text-success"><?= money($row['amount']) ?></td>
+              <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
+                <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
+              </td>
             </tr>
           <?php endforeach; ?>
         </tbody>

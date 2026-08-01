@@ -333,7 +333,7 @@ function category_options(PDO $pdo, ?string $section = null, ?int $selected = nu
         $stmt = $pdo->prepare('SELECT id, name, section FROM categories WHERE section = ? ORDER BY sort_order');
         $stmt->execute([$section]);
     } else {
-        $stmt = $pdo->query("SELECT id, name, section FROM categories WHERE section IN ('credit','land_purchase','expense') ORDER BY FIELD(section,'credit','land_purchase','expense'), sort_order");
+        $stmt = $pdo->query("SELECT id, name, section FROM categories WHERE section IN ('credit','land_purchase','expense') OR (section = 'general' AND slug = 'investment_withdrawal') ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order");
     }
     $rows = $stmt->fetchAll();
     $html = '<option value="">Select category</option>';
@@ -341,6 +341,7 @@ function category_options(PDO $pdo, ?string $section = null, ?int $selected = nu
         'credit' => 'Credit',
         'land_purchase' => 'Land Purchase',
         'expense' => 'Expense',
+        'general' => 'General',
     ];
     foreach ($rows as $row) {
         $sel = ((int) $row['id'] === (int) $selected) ? ' selected' : '';

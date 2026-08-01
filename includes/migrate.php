@@ -163,4 +163,11 @@ function ensure_v2_schema(PDO $pdo): void
     if (!$chk->fetchColumn()) {
         $pdo->exec("INSERT INTO categories (section, name, slug, sort_order) VALUES ('general', 'Bank Transfer', 'bank_transfer', 40)");
     }
+
+    // Ensure investment withdrawal category exists (debit side of investments)
+    $chkInvW = $pdo->prepare("SELECT id FROM categories WHERE section='general' AND slug='investment_withdrawal' LIMIT 1");
+    $chkInvW->execute();
+    if (!$chkInvW->fetchColumn()) {
+        $pdo->exec("INSERT INTO categories (section, name, slug, sort_order) VALUES ('general', 'Investment Withdrawal', 'investment_withdrawal', 50)");
+    }
 }

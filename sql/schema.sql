@@ -228,7 +228,9 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 -- General topic helpers
 ('general', 'Investment', 'investment', 10),
 ('general', 'Deposit', 'deposit', 20),
-('general', 'Asset Purchase', 'asset_purchase', 30);
+('general', 'Asset Purchase', 'asset_purchase', 30),
+('general', 'Bank Transfer', 'bank_transfer', 40),
+('general', 'Investment Withdrawal', 'investment_withdrawal', 50);
 
 -- Sample projects
 INSERT INTO projects (company_id, name, location, status, start_date) VALUES
