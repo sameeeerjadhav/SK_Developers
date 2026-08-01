@@ -3,15 +3,74 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-/** Renders one Credit/Debit column: table of rows plus a totals row at the end. */
-function render_txn_column(array $rows, string $type, float $total): void
+const TXN_PER_PAGE = 20;
+
+/**
+ * Fetches one page of credit or debit transactions plus the grand total count/sum
+ * across ALL matching rows (not just the current page) for that type.
+ */
+function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectId, string $from, string $to, string $q, int $page): array
+{
+    $where = 'WHERE t.txn_type = ?';
+    $params = [$txnType];
+    if ($companyId) { $where .= ' AND t.company_id = ?'; $params[] = $companyId; }
+    if ($projectId) { $where .= ' AND t.project_id = ?'; $params[] = $projectId; }
+    if ($from !== '') { $where .= ' AND t.txn_date >= ?'; $params[] = $from; }
+    if ($to !== '') { $where .= ' AND t.txn_date <= ?'; $params[] = $to; }
+    if ($q !== '') {
+        $where .= ' AND (t.description LIKE ? OR t.reference_no LIKE ? OR cat.name LIKE ? OR c.name LIKE ? OR p.name LIKE ?)';
+        $like = '%' . $q . '%';
+        array_push($params, $like, $like, $like, $like, $like);
+    }
+
+    $countStmt = $pdo->prepare(
+        "SELECT COUNT(*), COALESCE(SUM(t.amount),0)
+         FROM transactions t
+         JOIN companies c ON c.id = t.company_id
+         JOIN categories cat ON cat.id = t.category_id
+         LEFT JOIN projects p ON p.id = t.project_id
+         $where"
+    );
+    $countStmt->execute($params);
+    [$total, $sum] = $countStmt->fetch(PDO::FETCH_NUM);
+    $total = (int) $total;
+
+    $totalPages = max(1, (int) ceil($total / TXN_PER_PAGE));
+    $page = min(max(1, $page), $totalPages);
+    $offset = ($page - 1) * TXN_PER_PAGE;
+
+    $rowStmt = $pdo->prepare(
+        "SELECT t.*, c.name AS company_name, cat.name AS category_name, cat.section, p.name AS project_name, pr.name AS partner_name
+         FROM transactions t
+         JOIN companies c ON c.id = t.company_id
+         JOIN categories cat ON cat.id = t.category_id
+         LEFT JOIN projects p ON p.id = t.project_id
+         LEFT JOIN partners pr ON pr.id = t.partner_id
+         $where
+         ORDER BY t.txn_date DESC, t.id DESC
+         LIMIT " . TXN_PER_PAGE . " OFFSET $offset"
+    );
+    $rowStmt->execute($params);
+
+    return [
+        'rows' => $rowStmt->fetchAll(),
+        'total' => $total,
+        'sum' => (float) $sum,
+        'page' => $page,
+        'totalPages' => $totalPages,
+    ];
+}
+
+/** Renders one Credit/Debit column: table of rows, a totals row, and pagination. */
+function render_txn_column(array $data, string $type, string $pageParam, array $baseQueryParams): void
 {
     $isCredit = $type === 'credit';
+    $rows = $data['rows'];
     ?>
     <div class="card">
       <div class="card-head">
         <h2 class="card-title"><?= txn_type_chip($type) ?> <?= $isCredit ? 'Credit' : 'Debit' ?></h2>
-        <span class="muted" style="font-size:0.8rem"><?= count($rows) ?> entries</span>
+        <span class="muted" style="font-size:0.8rem"><?= $data['total'] ?> entries</span>
       </div>
       <?php if (!$rows): ?>
         <div class="empty"><strong>No <?= $isCredit ? 'credit' : 'debit' ?> entries</strong><p>Nothing recorded for the current filters.</p></div>
@@ -59,12 +118,35 @@ function render_txn_column(array $rows, string $type, float $total): void
             <tfoot>
               <tr>
                 <td colspan="3">Total <?= $isCredit ? 'credit' : 'debit' ?></td>
-                <td class="num <?= $isCredit ? 'text-success' : 'text-danger' ?>"><?= money($total) ?></td>
+                <td class="num <?= $isCredit ? 'text-success' : 'text-danger' ?>"><?= money($data['sum']) ?></td>
                 <td></td>
               </tr>
             </tfoot>
           </table>
         </div>
+        <?php if ($data['totalPages'] > 1):
+          $page = $data['page'];
+          $totalPages = $data['totalPages'];
+          $urlFor = function (int $p) use ($pageParam, $baseQueryParams) {
+              $params = $baseQueryParams;
+              $params[$pageParam] = $p;
+              return base_url('pages/transactions.php?' . http_build_query(array_filter($params, fn($v) => $v !== null && $v !== '')));
+          };
+        ?>
+          <div class="pager">
+            <?php if ($page > 1): ?>
+              <a class="btn btn-outline btn-sm" href="<?= e($urlFor($page - 1)) ?>">← Prev</a>
+            <?php else: ?>
+              <span class="btn btn-outline btn-sm" aria-disabled="true">← Prev</span>
+            <?php endif; ?>
+            <span class="pager-info">Page <?= $page ?> of <?= $totalPages ?></span>
+            <?php if ($page < $totalPages): ?>
+              <a class="btn btn-outline btn-sm" href="<?= e($urlFor($page + 1)) ?>">Next →</a>
+            <?php else: ?>
+              <span class="btn btn-outline btn-sm" aria-disabled="true">Next →</span>
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
       <?php endif; ?>
     </div>
     <?php
@@ -389,33 +471,29 @@ $pageTitle = 'Transactions';
 $pageSub = 'Full ledger across companies and projects.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
 
-$sql = 'SELECT t.*, c.name AS company_name, cat.name AS category_name, cat.section, p.name AS project_name, pr.name AS partner_name
-        FROM transactions t
-        JOIN companies c ON c.id = t.company_id
-        JOIN categories cat ON cat.id = t.category_id
-        LEFT JOIN projects p ON p.id = t.project_id
-        LEFT JOIN partners pr ON pr.id = t.partner_id
-        WHERE 1=1';
-$params = [];
-if ($filterCompany) { $sql .= ' AND t.company_id = ?'; $params[] = $filterCompany; }
-if ($filterProject) { $sql .= ' AND t.project_id = ?'; $params[] = $filterProject; }
-if ($filterType !== '') { $sql .= ' AND t.txn_type = ?'; $params[] = $filterType; }
-if ($filterFrom !== '') { $sql .= ' AND t.txn_date >= ?'; $params[] = $filterFrom; }
-if ($filterTo !== '') { $sql .= ' AND t.txn_date <= ?'; $params[] = $filterTo; }
-if ($q !== '') {
-    $sql .= ' AND (t.description LIKE ? OR t.reference_no LIKE ? OR cat.name LIKE ? OR c.name LIKE ? OR p.name LIKE ?)';
-    $like = '%' . $q . '%';
-    array_push($params, $like, $like, $like, $like, $like);
-}
-$sql .= ' ORDER BY t.txn_date DESC, t.id DESC LIMIT 300';
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$rows = $stmt->fetchAll();
+$emptyPage = ['rows' => [], 'total' => 0, 'sum' => 0.0, 'page' => 1, 'totalPages' => 1];
+$creditPage = max(1, (int) get('credit_page', 1));
+$debitPage = max(1, (int) get('debit_page', 1));
 
-$creditRows = array_values(array_filter($rows, fn($r) => $r['txn_type'] === 'credit'));
-$debitRows = array_values(array_filter($rows, fn($r) => $r['txn_type'] === 'debit'));
-$creditTotal = array_sum(array_map(fn($r) => (float) $r['amount'], $creditRows));
-$debitTotal = array_sum(array_map(fn($r) => (float) $r['amount'], $debitRows));
+$creditData = ($filterType === '' || $filterType === 'credit')
+    ? fetch_txn_page($pdo, 'credit', $filterCompany, $filterProject, $filterFrom, $filterTo, $q, $creditPage)
+    : $emptyPage;
+$debitData = ($filterType === '' || $filterType === 'debit')
+    ? fetch_txn_page($pdo, 'debit', $filterCompany, $filterProject, $filterFrom, $filterTo, $q, $debitPage)
+    : $emptyPage;
+
+$baseQueryParams = [
+    'company_id' => $filterCompany ?: null,
+    'project_id' => $filterProject ?: null,
+    'txn_type' => $filterType ?: null,
+    'from' => $filterFrom ?: null,
+    'to' => $filterTo ?: null,
+    'q' => $q !== '' ? $q : null,
+    'month' => $month ?: null,
+    'year' => $year ?: null,
+    'credit_page' => $creditData['page'],
+    'debit_page' => $debitData['page'],
+];
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -462,8 +540,8 @@ require __DIR__ . '/../includes/header.php';
 
 <div class="txn-split">
   <?php
-  render_txn_column($creditRows, 'credit', $creditTotal);
-  render_txn_column($debitRows, 'debit', $debitTotal);
+  render_txn_column($creditData, 'credit', 'credit_page', $baseQueryParams);
+  render_txn_column($debitData, 'debit', 'debit_page', $baseQueryParams);
   ?>
 </div>
 
