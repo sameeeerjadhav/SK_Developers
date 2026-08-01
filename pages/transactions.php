@@ -3,6 +3,73 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
+/** Renders one Credit/Debit column: table of rows plus a totals row at the end. */
+function render_txn_column(array $rows, string $type, float $total): void
+{
+    $isCredit = $type === 'credit';
+    ?>
+    <div class="card">
+      <div class="card-head">
+        <h2 class="card-title"><?= txn_type_chip($type) ?> <?= $isCredit ? 'Credit' : 'Debit' ?></h2>
+        <span class="muted" style="font-size:0.8rem"><?= count($rows) ?> entries</span>
+      </div>
+      <?php if (!$rows): ?>
+        <div class="empty"><strong>No <?= $isCredit ? 'credit' : 'debit' ?> entries</strong><p>Nothing recorded for the current filters.</p></div>
+      <?php else: ?>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Company / Project</th>
+                <th>Category</th>
+                <th class="num">Amount</th>
+                <th class="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($rows as $row): ?>
+                <tr>
+                  <td><?= e($row['txn_date']) ?></td>
+                  <td>
+                    <strong><?= e($row['company_name']) ?></strong>
+                    <div class="muted" style="font-size:0.75rem"><?= e($row['project_name'] ?? 'No project') ?><?= $row['partner_name'] ? ' · ' . e($row['partner_name']) : '' ?></div>
+                  </td>
+                  <td>
+                    <?= e($row['category_name']) ?>
+                    <div class="muted" style="font-size:0.72rem"><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?></div>
+                  </td>
+                  <td class="num <?= $isCredit ? 'text-success' : 'text-danger' ?>">
+                    <?= $isCredit ? '+' : '−' ?><?= money($row['amount']) ?>
+                  </td>
+                  <td class="actions">
+                    <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
+                    <?php if (can_delete()): ?>
+                    <form method="post" style="display:inline">
+                      <?= csrf_field() ?>
+                      <input type="hidden" name="action" value="delete">
+                      <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                      <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this transaction?">Delete</button>
+                    </form>
+                    <?php endif; ?>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3">Total <?= $isCredit ? 'credit' : 'debit' ?></td>
+                <td class="num <?= $isCredit ? 'text-success' : 'text-danger' ?>"><?= money($total) ?></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+    <?php
+}
+
 $action = get('action', 'list');
 $id = (int) get('id', 0);
 $q = get('q', '');
@@ -345,6 +412,11 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
 
+$creditRows = array_values(array_filter($rows, fn($r) => $r['txn_type'] === 'credit'));
+$debitRows = array_values(array_filter($rows, fn($r) => $r['txn_type'] === 'debit'));
+$creditTotal = array_sum(array_map(fn($r) => (float) $r['amount'], $creditRows));
+$debitTotal = array_sum(array_map(fn($r) => (float) $r['amount'], $debitRows));
+
 require __DIR__ . '/../includes/header.php';
 ?>
 
@@ -388,55 +460,11 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </form>
 
-<div class="card">
-  <?php if (!$rows): ?>
-    <div class="empty"><strong>No transactions</strong><p>Add investment, booking, land purchase or expense entries.</p></div>
-  <?php else: ?>
-    <div class="table-wrap">
-      <table class="data">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Company / Project</th>
-            <th>Category</th>
-            <th>Type</th>
-            <th class="num">Amount</th>
-            <th class="actions">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($rows as $row): ?>
-            <tr>
-              <td><?= e($row['txn_date']) ?></td>
-              <td>
-                <strong><?= e($row['company_name']) ?></strong>
-                <div class="muted" style="font-size:0.75rem"><?= e($row['project_name'] ?? 'No project') ?><?= $row['partner_name'] ? ' · ' . e($row['partner_name']) : '' ?></div>
-              </td>
-              <td>
-                <?= e($row['category_name']) ?>
-                <div class="muted" style="font-size:0.72rem"><?= e(ucwords(str_replace('_',' ',$row['section']))) ?></div>
-              </td>
-              <td><?= txn_type_chip($row['txn_type']) ?></td>
-              <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>">
-                <?= $row['txn_type'] === 'credit' ? '+' : '−' ?><?= money($row['amount']) ?>
-              </td>
-              <td class="actions">
-                <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
-                <?php if (can_delete()): ?>
-                <form method="post" style="display:inline">
-                  <?= csrf_field() ?>
-                  <input type="hidden" name="action" value="delete">
-                  <input type="hidden" name="id" value="<?= (int)$row['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this transaction?">Delete</button>
-                </form>
-                <?php endif; ?>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    </div>
-  <?php endif; ?>
+<div class="txn-split">
+  <?php
+  render_txn_column($creditRows, 'credit', $creditTotal);
+  render_txn_column($debitRows, 'debit', $debitTotal);
+  ?>
 </div>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>
