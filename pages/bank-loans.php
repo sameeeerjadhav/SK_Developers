@@ -26,16 +26,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
         $borrowerNames = $_POST['borrower_name'] ?? [];
-        $borrowerLoanAmounts = $_POST['borrower_loan_amount'] ?? [];
-        $borrowersTotalAmount = 0.0;
+        $borrowersData = [];
         foreach ($borrowerNames as $i => $bn) {
-            if (trim((string) $bn) === '') {
-                continue;
-            }
-            $borrowersTotalAmount += isset($borrowerLoanAmounts[$i]) && $borrowerLoanAmounts[$i] !== '' ? (float) $borrowerLoanAmounts[$i] : 0.0;
-        }
-        if ($borrowersTotalAmount > 0) {
-            $loanAmount = $borrowersTotalAmount;
+            $borrowersData[] = [
+                'name' => $bn,
+                'loan_amount' => $_POST['borrower_loan_amount'][$i] ?? '',
+                'outstanding_amount' => $_POST['borrower_outstanding_amount'][$i] ?? '',
+                'interest_charges' => $_POST['borrower_interest_charges'][$i] ?? '',
+                'start_date' => $_POST['borrower_start_date'][$i] ?? '',
+                'end_date' => $_POST['borrower_end_date'][$i] ?? '',
+                'mortgage_noc_date' => $_POST['borrower_mortgage_noc_date'][$i] ?? '',
+                'reconveyance_date' => $_POST['borrower_reconveyance_date'][$i] ?? '',
+            ];
         }
         if (!$companyId || $lender === '') {
             flash('error', 'Company and lender name are required.');
@@ -44,14 +46,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($editId) {
             $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, status=?, notes=?, mortgage_noc_date=?, reconveyance_date=? WHERE id=?');
             $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate, $editId]);
-            sync_loan_borrowers($pdo, $editId, $borrowerNames, $borrowerLoanAmounts);
+            sync_loan_borrowers($pdo, $editId, $borrowersData);
             flash('success', 'Bank loan updated.');
             redirect('pages/loan-view.php?id=' . $editId);
         } else {
             $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, status, notes, mortgage_noc_date, reconveyance_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
             $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate]);
             $newLoanId = (int) $pdo->lastInsertId();
-            sync_loan_borrowers($pdo, $newLoanId, $borrowerNames, $borrowerLoanAmounts);
+            sync_loan_borrowers($pdo, $newLoanId, $borrowersData);
 
             if ($postToLedger && $loanAmount > 0) {
                 $catId = category_id_by_slug($pdo, 'credit', 'bank_loan');
@@ -95,12 +97,13 @@ if ($action === 'add' || $action === 'edit') {
         $stmt = $pdo->prepare('SELECT * FROM bank_loans WHERE id = ?');
         $stmt->execute([$id]);
         $row = $stmt->fetch();
-        $bStmt = $pdo->prepare('SELECT name, loan_amount FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+        $bStmt = $pdo->prepare('SELECT * FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
         $bStmt->execute([$id]);
         $borrowers = $bStmt->fetchAll();
     }
+    $blankBorrower = ['name' => '', 'loan_amount' => '', 'outstanding_amount' => '', 'interest_charges' => '', 'start_date' => '', 'end_date' => '', 'mortgage_noc_date' => '', 'reconveyance_date' => ''];
     if (!$borrowers) {
-        $borrowers = [['name' => '', 'loan_amount' => '']];
+        $borrowers = [$blankBorrower];
     }
     $knownBorrowerNames = $pdo->query('SELECT DISTINCT name FROM loan_borrowers ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
     $pageTitle = $action === 'edit' ? 'Edit bank loan' : 'Add bank loan';
@@ -133,18 +136,47 @@ if ($action === 'add' || $action === 'edit') {
           <input type="text" name="lender_name" required value="<?= e($row['lender_name'] ?? '') ?>">
         </div>
         <div class="full">
-          <label>People on this loan (borrowers / guarantors) — each with their own loan amount</label>
-          <div class="repeat-row" style="display:grid;grid-template-columns:2fr 1fr 40px;gap:0.6rem;margin-bottom:0.4rem">
-            <span class="muted" style="font-size:0.72rem">Name</span>
-            <span class="muted" style="font-size:0.72rem">Loan amount (₹)</span>
-            <span></span>
-          </div>
+          <label>People on this loan (borrowers / guarantors) — each with their own details</label>
           <div data-repeat-container="borrowers">
             <?php foreach ($borrowers as $b): ?>
-            <div class="repeat-row" style="display:grid;grid-template-columns:2fr 1fr 40px;gap:0.6rem;margin-bottom:0.6rem">
-              <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames" value="<?= e($b['name'] ?? '') ?>">
-              <input type="number" step="0.01" name="borrower_loan_amount[]" class="borrower-amount-field" placeholder="0.00" value="<?= e((string) ($b['loan_amount'] ?? '')) ?>">
-              <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times;</button>
+            <div class="repeat-row borrower-block" style="border:1px solid var(--border-strong);border-radius:14px;padding:0.8rem;margin-bottom:0.7rem">
+              <div style="display:flex;justify-content:flex-end;margin-bottom:0.4rem">
+                <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times; Remove person</button>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem">
+                <div>
+                  <label>Name</label>
+                  <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames" value="<?= e($b['name'] ?? '') ?>">
+                </div>
+                <div>
+                  <label>Loan amount (₹)</label>
+                  <input type="number" step="0.01" name="borrower_loan_amount[]" value="<?= e((string) ($b['loan_amount'] ?? '')) ?>">
+                </div>
+                <div>
+                  <label>Outstanding (₹)</label>
+                  <input type="number" step="0.01" name="borrower_outstanding_amount[]" value="<?= e((string) ($b['outstanding_amount'] ?? '')) ?>">
+                </div>
+                <div>
+                  <label>Interest + charges (₹)</label>
+                  <input type="number" step="0.01" name="borrower_interest_charges[]" value="<?= e((string) ($b['interest_charges'] ?? '')) ?>">
+                </div>
+                <div>
+                  <label>Start date</label>
+                  <input type="date" name="borrower_start_date[]" value="<?= e($b['start_date'] ?? '') ?>">
+                </div>
+                <div>
+                  <label>End date</label>
+                  <input type="date" name="borrower_end_date[]" value="<?= e($b['end_date'] ?? '') ?>">
+                </div>
+                <div>
+                  <label>Mortgage NOC (optional)</label>
+                  <input type="date" name="borrower_mortgage_noc_date[]" value="<?= e($b['mortgage_noc_date'] ?? '') ?>">
+                </div>
+                <div>
+                  <label>Reconveyance date</label>
+                  <input type="date" name="borrower_reconveyance_date[]" value="<?= e($b['reconveyance_date'] ?? '') ?>">
+                </div>
+              </div>
             </div>
             <?php endforeach; ?>
           </div>
@@ -155,20 +187,53 @@ if ($action === 'add' || $action === 'edit') {
             <?php endforeach; ?>
           </datalist>
           <template id="borrowerRowTemplate">
-            <div class="repeat-row" style="display:grid;grid-template-columns:2fr 1fr 40px;gap:0.6rem;margin-bottom:0.6rem">
-              <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames">
-              <input type="number" step="0.01" name="borrower_loan_amount[]" class="borrower-amount-field" placeholder="0.00">
-              <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times;</button>
+            <div class="repeat-row borrower-block" style="border:1px solid var(--border-strong);border-radius:14px;padding:0.8rem;margin-bottom:0.7rem">
+              <div style="display:flex;justify-content:flex-end;margin-bottom:0.4rem">
+                <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times; Remove person</button>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem">
+                <div>
+                  <label>Name</label>
+                  <input type="text" name="borrower_name[]" placeholder="Name" list="knownBorrowerNames">
+                </div>
+                <div>
+                  <label>Loan amount (₹)</label>
+                  <input type="number" step="0.01" name="borrower_loan_amount[]">
+                </div>
+                <div>
+                  <label>Outstanding (₹)</label>
+                  <input type="number" step="0.01" name="borrower_outstanding_amount[]">
+                </div>
+                <div>
+                  <label>Interest + charges (₹)</label>
+                  <input type="number" step="0.01" name="borrower_interest_charges[]">
+                </div>
+                <div>
+                  <label>Start date</label>
+                  <input type="date" name="borrower_start_date[]">
+                </div>
+                <div>
+                  <label>End date</label>
+                  <input type="date" name="borrower_end_date[]">
+                </div>
+                <div>
+                  <label>Mortgage NOC (optional)</label>
+                  <input type="date" name="borrower_mortgage_noc_date[]">
+                </div>
+                <div>
+                  <label>Reconveyance date</label>
+                  <input type="date" name="borrower_reconveyance_date[]">
+                </div>
+              </div>
             </div>
           </template>
         </div>
         <div>
-          <label>Loan amount (₹)</label>
-          <input type="number" step="0.01" name="loan_amount" id="loanAmountField" value="<?= e((string)($row['loan_amount'] ?? '0')) ?>">
-          <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">Auto-fills as the sum of all borrowers' loan amounts above (leave borrowers empty to enter it manually).</p>
+          <label>Total loan amount (₹)</label>
+          <input type="number" step="0.01" name="loan_amount" value="<?= e((string)($row['loan_amount'] ?? '0')) ?>">
         </div>
         <div>
-          <label>Outstanding (₹)</label>
+          <label>Total outstanding (₹)</label>
           <input type="number" step="0.01" name="outstanding_amount" value="<?= e((string)($row['outstanding_amount'] ?? '0')) ?>">
         </div>
         <div>

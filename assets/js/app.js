@@ -236,23 +236,7 @@
     refreshToolbar();
   });
 
-  // Bank loan: total loan amount is the sum of each borrower's own loan amount
-  function recalcBorrowerTotal(form) {
-    var totalField = form.querySelector('#loanAmountField');
-    if (!totalField) return;
-    var total = 0;
-    form.querySelectorAll('.borrower-amount-field').forEach(function (field) {
-      total += parseFloat(field.value) || 0;
-    });
-    totalField.value = total.toFixed(2);
-  }
-  document.addEventListener('input', function (e) {
-    if (!e.target.classList.contains('borrower-amount-field')) return;
-    var form = e.target.closest('form');
-    if (form) recalcBorrowerTotal(form);
-  });
-
-  // Repeatable field rows (e.g. multiple borrower names on a bank loan)
+  // Repeatable field rows (e.g. multiple borrowers on a bank loan)
   document.querySelectorAll('[data-repeat-add]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var container = document.querySelector('[data-repeat-container="' + btn.getAttribute('data-repeat-add') + '"]');
@@ -268,13 +252,11 @@
     var row = removeBtn.closest('.repeat-row');
     var container = row && row.parentElement;
     if (!row || !container) return;
-    var form = row.closest('form');
     if (container.children.length > 1) {
       row.remove();
     } else {
       row.querySelectorAll('input').forEach(function (inp) { inp.value = ''; });
     }
-    if (form) recalcBorrowerTotal(form);
   });
 
   document.querySelectorAll('[data-confirm]').forEach(function (el) {

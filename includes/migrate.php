@@ -402,6 +402,18 @@ function ensure_v2_schema(PDO $pdo): void
     if (in_array('phone', $borrowerCols, true)) {
         $pdo->exec('ALTER TABLE loan_borrowers DROP COLUMN phone');
     }
+    foreach ([
+        'outstanding_amount' => 'ALTER TABLE loan_borrowers ADD COLUMN outstanding_amount DECIMAL(14,2) NULL AFTER loan_amount',
+        'interest_charges' => 'ALTER TABLE loan_borrowers ADD COLUMN interest_charges DECIMAL(14,2) NULL AFTER outstanding_amount',
+        'start_date' => 'ALTER TABLE loan_borrowers ADD COLUMN start_date DATE NULL AFTER interest_charges',
+        'end_date' => 'ALTER TABLE loan_borrowers ADD COLUMN end_date DATE NULL AFTER start_date',
+        'mortgage_noc_date' => 'ALTER TABLE loan_borrowers ADD COLUMN mortgage_noc_date DATE NULL AFTER end_date',
+        'reconveyance_date' => 'ALTER TABLE loan_borrowers ADD COLUMN reconveyance_date DATE NULL AFTER mortgage_noc_date',
+    ] as $col => $ddl) {
+        if (!in_array($col, $borrowerCols, true)) {
+            $pdo->exec($ddl);
+        }
+    }
 
     $repayCols = $pdo->query("SHOW COLUMNS FROM loan_repayments")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('borrower_id', $repayCols, true)) {

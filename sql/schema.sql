@@ -146,6 +146,12 @@ CREATE TABLE loan_borrowers (
   loan_id INT UNSIGNED NOT NULL,
   name VARCHAR(160) NOT NULL,
   loan_amount DECIMAL(14,2) NULL,
+  outstanding_amount DECIMAL(14,2) NULL,
+  interest_charges DECIMAL(14,2) NULL,
+  start_date DATE NULL,
+  end_date DATE NULL,
+  mortgage_noc_date DATE NULL,
+  reconveyance_date DATE NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_borrower_loan FOREIGN KEY (loan_id) REFERENCES bank_loans(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -159,10 +159,11 @@ $totalRepaid = array_sum(array_map(fn($r) => (float) $r['amount'], $repayments))
 $principalRepaid = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $repayments));
 $interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $repayments));
 
-$borrowerStmt = $pdo->prepare('SELECT id, name, loan_amount FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+$borrowerStmt = $pdo->prepare('SELECT * FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
 $borrowerStmt->execute([$id]);
 $borrowers = $borrowerStmt->fetchAll();
 $borrowersTotal = array_sum(array_map(fn($b) => (float) ($b['loan_amount'] ?? 0), $borrowers));
+$borrowersOutstandingTotal = array_sum(array_map(fn($b) => (float) ($b['outstanding_amount'] ?? 0), $borrowers));
 
 $borrowerOptions = function (?int $selected = null) use ($borrowers): string {
     $html = '<option value="">Whole loan / unspecified</option>';
@@ -183,8 +184,8 @@ require __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="stat-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
-  <div class="stat-card"><div class="stat-label">Loan amount</div><div class="stat-value"><?= money($loan['loan_amount']) ?></div></div>
-  <div class="stat-card"><div class="stat-label">Outstanding</div><div class="stat-value"><?= money($loan['outstanding_amount']) ?></div><div class="stat-hint"><?= status_chip($loan['status']) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Total loan amount</div><div class="stat-value"><?= money($loan['loan_amount']) ?></div></div>
+  <div class="stat-card"><div class="stat-label">Total outstanding</div><div class="stat-value"><?= money($loan['outstanding_amount']) ?></div><div class="stat-hint"><?= status_chip($loan['status']) ?></div></div>
   <div class="stat-card"><div class="stat-label">Interest + charges</div><div class="stat-value"><?= $loan['interest_charges'] !== null ? money($loan['interest_charges']) : '—' ?></div></div>
   <div class="stat-card"><div class="stat-label">Total repaid</div><div class="stat-value"><?= money($totalRepaid) ?></div></div>
   <div class="stat-card"><div class="stat-label">Principal repaid</div><div class="stat-value text-success"><?= money($principalRepaid) ?></div></div>
@@ -198,14 +199,41 @@ require __DIR__ . '/../includes/header.php';
   <h2 class="card-title">Borrowers / guarantors</h2>
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>Name</th><th class="num">Loan amount</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th class="num">Loan amount</th>
+          <th class="num">Outstanding</th>
+          <th class="num">Interest + charges</th>
+          <th>Start date</th>
+          <th>End date</th>
+          <th>Mortgage NOC</th>
+          <th>Reconveyance</th>
+        </tr>
+      </thead>
       <tbody>
         <?php foreach ($borrowers as $b): ?>
-          <tr><td><?= e($b['name']) ?></td><td class="num"><?= $b['loan_amount'] !== null ? money($b['loan_amount']) : '—' ?></td></tr>
+          <tr>
+            <td><?= e($b['name']) ?></td>
+            <td class="num"><?= $b['loan_amount'] !== null ? money($b['loan_amount']) : '—' ?></td>
+            <td class="num"><?= $b['outstanding_amount'] !== null ? money($b['outstanding_amount']) : '—' ?></td>
+            <td class="num"><?= $b['interest_charges'] !== null ? money($b['interest_charges']) : '—' ?></td>
+            <td><?= $b['start_date'] ? e(format_date($b['start_date'])) : '—' ?></td>
+            <td><?= $b['end_date'] ? e(format_date($b['end_date'])) : '—' ?></td>
+            <td><?= $b['mortgage_noc_date'] ? e(format_date($b['mortgage_noc_date'])) : '—' ?></td>
+            <td><?= $b['reconveyance_date'] ? e(format_date($b['reconveyance_date'])) : '—' ?></td>
+          </tr>
         <?php endforeach; ?>
       </tbody>
-      <?php if ($borrowersTotal > 0): ?>
-      <tfoot><tr><td>Total</td><td class="num"><?= money($borrowersTotal) ?></td></tr></tfoot>
+      <?php if ($borrowersTotal > 0 || $borrowersOutstandingTotal > 0): ?>
+      <tfoot>
+        <tr>
+          <td>Total</td>
+          <td class="num"><?= money($borrowersTotal) ?></td>
+          <td class="num"><?= money($borrowersOutstandingTotal) ?></td>
+          <td></td><td></td><td></td><td></td><td></td>
+        </tr>
+      </tfoot>
       <?php endif; ?>
     </table>
   </div>

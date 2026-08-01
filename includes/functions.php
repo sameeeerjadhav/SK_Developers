@@ -621,18 +621,41 @@ function refresh_loan_outstanding(PDO $pdo, int $loanId): void
         ->execute([$outstanding, $status, $loanId]);
 }
 
-/** Replaces a loan's borrower list. Pass parallel $names/$loanAmounts arrays (blank names are skipped). */
-function sync_loan_borrowers(PDO $pdo, int $loanId, array $names, array $loanAmounts = []): void
+/**
+ * Replaces a loan's borrower list. Pass an array of rows, each with keys:
+ * name, loan_amount, outstanding_amount, interest_charges, start_date, end_date,
+ * mortgage_noc_date, reconveyance_date. Rows with a blank name are skipped.
+ */
+function sync_loan_borrowers(PDO $pdo, int $loanId, array $borrowers): void
 {
     $pdo->prepare('DELETE FROM loan_borrowers WHERE loan_id = ?')->execute([$loanId]);
-    $ins = $pdo->prepare('INSERT INTO loan_borrowers (loan_id, name, loan_amount) VALUES (?,?,?)');
-    foreach ($names as $i => $name) {
-        $name = trim((string) $name);
+    $ins = $pdo->prepare(
+        'INSERT INTO loan_borrowers
+        (loan_id, name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, mortgage_noc_date, reconveyance_date)
+        VALUES (?,?,?,?,?,?,?,?,?)'
+    );
+    $num = function ($v) {
+        return $v !== '' && $v !== null ? (float) $v : null;
+    };
+    $date = function ($v) {
+        return $v !== '' && $v !== null ? $v : null;
+    };
+    foreach ($borrowers as $b) {
+        $name = trim((string) ($b['name'] ?? ''));
         if ($name === '') {
             continue;
         }
-        $amount = isset($loanAmounts[$i]) && $loanAmounts[$i] !== '' ? (float) $loanAmounts[$i] : null;
-        $ins->execute([$loanId, $name, $amount]);
+        $ins->execute([
+            $loanId,
+            $name,
+            $num($b['loan_amount'] ?? null),
+            $num($b['outstanding_amount'] ?? null),
+            $num($b['interest_charges'] ?? null),
+            $date($b['start_date'] ?? null),
+            $date($b['end_date'] ?? null),
+            $date($b['mortgage_noc_date'] ?? null),
+            $date($b['reconveyance_date'] ?? null),
+        ]);
     }
 }
 
