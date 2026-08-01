@@ -78,8 +78,13 @@ function ensure_v2_schema(PDO $pdo): void
         $pdo->exec("CREATE TABLE IF NOT EXISTS bank_transfers (
           id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           company_id INT UNSIGNED NOT NULL,
+          transfer_type ENUM('internal','external') NOT NULL DEFAULT 'internal',
           from_account_id INT UNSIGNED NOT NULL,
-          to_account_id INT UNSIGNED NOT NULL,
+          to_account_id INT UNSIGNED NULL,
+          recipient_name VARCHAR(160) NULL,
+          recipient_account_number VARCHAR(60) NULL,
+          recipient_ifsc VARCHAR(20) NULL,
+          recipient_bank_name VARCHAR(160) NULL,
           amount DECIMAL(14,2) NOT NULL,
           transfer_date DATE NOT NULL,
           reference_no VARCHAR(80) NULL,
@@ -90,6 +95,16 @@ function ensure_v2_schema(PDO $pdo): void
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           INDEX idx_transfer_date (transfer_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+
+    $transferCols = $pdo->query("SHOW COLUMNS FROM bank_transfers")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('transfer_type', $transferCols, true)) {
+        $pdo->exec("ALTER TABLE bank_transfers ADD COLUMN transfer_type ENUM('internal','external') NOT NULL DEFAULT 'internal' AFTER company_id");
+        $pdo->exec('ALTER TABLE bank_transfers MODIFY to_account_id INT UNSIGNED NULL');
+        $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_name VARCHAR(160) NULL AFTER to_account_id');
+        $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_account_number VARCHAR(60) NULL AFTER recipient_name');
+        $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_ifsc VARCHAR(20) NULL AFTER recipient_account_number');
+        $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_bank_name VARCHAR(160) NULL AFTER recipient_ifsc');
     }
 
     try {
