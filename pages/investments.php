@@ -68,9 +68,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         exit;
     }
 
-    // PDF: render a print-ready sheet — user saves via the browser's Print dialog, same as Reports.
+    // PDF: render a formal print-ready report sheet — user saves via the browser's Print dialog, same as Reports.
+    $entryWord = count($exportRows) === 1 ? 'entry' : 'entries';
+    $datesCovered = array_unique(array_map(fn($r) => $r['txn_date'], $exportRows));
+    sort($datesCovered);
+    $rangeLabel = count($datesCovered) > 1
+        ? format_date($datesCovered[0]) . ' – ' . format_date(end($datesCovered))
+        : format_date($datesCovered[0] ?? null);
+
     $pageTitle = 'Investment export';
-    $pageSub = count($exportRows) . ' selected transaction(s).';
+    $pageSub = count($exportRows) . ' selected ' . $entryWord . '.';
     $pageActions = '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>';
     require __DIR__ . '/../includes/header.php';
     ?>
@@ -79,39 +86,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
       <div class="print-header report-header">
         <div>
           <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
-          <div class="print-meta report-meta" style="text-align:left">Investment export · <?= count($exportRows) ?> entries</div>
+          <div class="report-doc-title">Investment Report</div>
+          <div class="print-meta report-meta" style="text-align:left"><?= count($exportRows) ?> <?= e($entryWord) ?> · <?= e($rangeLabel) ?></div>
         </div>
-        <div class="print-meta report-meta">Generated <?= e(date('d M Y H:i')) ?><br><?= e(current_user()['name'] ?? '') ?></div>
+        <div class="print-meta report-meta">Generated <?= e(date('d M Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
       </div>
-      <div class="stat-grid" style="margin:16px 0">
-        <div class="stat-card"><div class="stat-label">Total invested</div><div class="stat-value text-success"><?= money($exportIn) ?></div></div>
-        <div class="stat-card"><div class="stat-label">Total withdrawn</div><div class="stat-value text-danger"><?= money($exportOut) ?></div></div>
-        <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value <?= ($exportIn - $exportOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($exportIn - $exportOut) ?></div></div>
+
+      <div class="report-summary">
+        <div>
+          <div class="label">Total invested</div>
+          <div class="value text-success"><?= money($exportIn) ?></div>
+        </div>
+        <div>
+          <div class="label">Total withdrawn</div>
+          <div class="value text-danger"><?= money($exportOut) ?></div>
+        </div>
+        <div>
+          <div class="label">Net investment</div>
+          <div class="value <?= ($exportIn - $exportOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($exportIn - $exportOut) ?></div>
+        </div>
       </div>
+
       <div class="table-wrap">
         <table class="data">
           <thead>
-            <tr><th>Date</th><th>Company</th><th>Project</th><th>Category</th><th>Type</th><th>Note</th><th class="num">Amount</th></tr>
+            <tr>
+              <th>#</th>
+              <th>Date</th>
+              <th>Company</th>
+              <th>Project</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th class="num">Invested (₹)</th>
+              <th class="num">Withdrawn (₹)</th>
+            </tr>
           </thead>
           <tbody>
-            <?php foreach ($exportRows as $r): ?>
+            <?php foreach ($exportRows as $i => $r): ?>
               <tr>
+                <td><?= $i + 1 ?></td>
                 <td><?= e(format_date($r['txn_date'])) ?></td>
                 <td><?= e($r['company_name']) ?></td>
                 <td><?= e($r['project_name'] ?? '—') ?></td>
                 <td><?= e($r['category_name']) ?></td>
-                <td><?= txn_type_chip($r['txn_type']) ?></td>
-                <td><?= e($r['description'] ?? '') ?></td>
-                <td class="num <?= $r['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>"><?= $r['txn_type'] === 'credit' ? '+' : '−' ?><?= money($r['amount']) ?></td>
+                <td><?= e($r['description'] ?: '—') ?></td>
+                <td class="num"><?= $r['txn_type'] === 'credit' ? number_format((float) $r['amount'], 2) : '—' ?></td>
+                <td class="num"><?= $r['txn_type'] === 'debit' ? number_format((float) $r['amount'], 2) : '—' ?></td>
               </tr>
             <?php endforeach; ?>
           </tbody>
           <tfoot>
-            <tr><td colspan="6"><strong>Net</strong></td><td class="num"><strong><?= money($exportIn - $exportOut) ?></strong></td></tr>
+            <tr>
+              <td colspan="6">TOTAL</td>
+              <td class="num"><?= number_format($exportIn, 2) ?></td>
+              <td class="num"><?= number_format($exportOut, 2) ?></td>
+            </tr>
+            <tr>
+              <td colspan="6">NET INVESTMENT</td>
+              <td class="num" colspan="2"><?= money($exportIn - $exportOut) ?></td>
+            </tr>
           </tfoot>
         </table>
       </div>
-      <p class="muted" style="margin-top:1.5rem;font-size:0.8rem">Confidential — Sai Kuber Developers internal use</p>
+
+      <div class="report-footnote">
+        <p>This is a system-generated report from the Sai Kuber Developers finance system. Figures reflect the transactions selected at export time.</p>
+        <p>Confidential — internal use only.</p>
+      </div>
     </div>
     <?php
     require __DIR__ . '/../includes/footer.php';

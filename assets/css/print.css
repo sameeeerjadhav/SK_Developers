@@ -20,6 +20,10 @@
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border);
 }
+.report-doc-title {
+  font-size: 0.95rem; font-weight: 700; color: var(--text);
+  margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.05em;
+}
 .report-meta {
   font-size: 0.85rem;
   color: var(--muted);
@@ -27,3 +31,31 @@
   text-align: right;
 }
 .print-report .content, .print-report { padding: 1.5rem; }
+
+/* Formal report summary strip (used by export/report PDF sheets) */
+.report-summary {
+  display: flex; border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; margin: 1.2rem 0 1.4rem;
+}
+.report-summary > div {
+  flex: 1; padding: 0.8rem 1.1rem;
+  border-right: 1px solid var(--border);
+}
+.report-summary > div:last-child { border-right: none; }
+.report-summary .label {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); font-weight: 700; margin-bottom: 0.3rem;
+}
+.report-summary .value { font-size: 1.15rem; font-weight: 800; }
+
+.print-sheet table.data tbody tr:nth-child(even) td { background: #fafcfb; }
+.print-sheet table.data tfoot td {
+  background: #eefcf9; border-top: 2px solid var(--border-strong);
+  font-weight: 800; font-size: 0.85rem;
+}
+.report-footnote {
+  margin-top: 1.5rem; padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem; color: var(--muted); line-height: 1.6;
+}
+.report-footnote p { margin: 0.15rem 0; }
