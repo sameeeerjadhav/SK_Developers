@@ -190,8 +190,6 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Total repaid</div><div class="stat-value"><?= money($totalRepaid) ?></div></div>
   <div class="stat-card"><div class="stat-label">Principal repaid</div><div class="stat-value text-success"><?= money($principalRepaid) ?></div></div>
   <div class="stat-card"><div class="stat-label">Interest repaid</div><div class="stat-value text-danger"><?= money($interestRepaid) ?></div></div>
-  <div class="stat-card"><div class="stat-label">Mortgage NOC</div><div class="stat-value"><?= $loan['mortgage_noc_date'] ? e(format_date($loan['mortgage_noc_date'])) : '—' ?></div></div>
-  <div class="stat-card"><div class="stat-label">Reconveyance</div><div class="stat-value"><?= $loan['reconveyance_date'] ? e(format_date($loan['reconveyance_date'])) : '—' ?></div></div>
 </div>
 
 <?php if ($borrowers): ?>

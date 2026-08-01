@@ -16,12 +16,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $loanAmount = (float) post('loan_amount', 0);
         $outstanding = (float) post('outstanding_amount', 0);
         $interestCharges = post('interest_charges') !== '' ? (float) post('interest_charges') : null;
-        $start = post('start_date') ?: null;
-        $end = post('end_date') ?: null;
         $status = post('status', 'active');
         $notes = post('notes', '');
-        $mortgageNocDate = post('mortgage_noc_date') ?: null;
-        $reconveyanceDate = post('reconveyance_date') ?: null;
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $postToLedger = !empty($_POST['post_to_ledger']);
         $editId = (int) post('id', 0);
@@ -44,14 +40,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/bank-loans.php?action=add');
         }
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, status=?, notes=?, mortgage_noc_date=?, reconveyance_date=? WHERE id=?');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate, $editId]);
+            $stmt = $pdo->prepare('UPDATE bank_loans SET company_id=?, project_id=?, lender_name=?, loan_amount=?, outstanding_amount=?, interest_charges=?, status=?, notes=? WHERE id=?');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $status, $notes, $editId]);
             sync_loan_borrowers($pdo, $editId, $borrowersData);
             flash('success', 'Bank loan updated.');
             redirect('pages/loan-view.php?id=' . $editId);
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, start_date, end_date, status, notes, mortgage_noc_date, reconveyance_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $start, $end, $status, $notes, $mortgageNocDate, $reconveyanceDate]);
+            $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, status, notes) VALUES (?,?,?,?,?,?,?,?)');
+            $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $status, $notes]);
             $newLoanId = (int) $pdo->lastInsertId();
             sync_loan_borrowers($pdo, $newLoanId, $borrowersData);
 
@@ -64,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $catId,
                         'credit',
                         $loanAmount,
-                        $start ?: date('Y-m-d'),
+                        date('Y-m-d'),
                         $projectId,
                         $bankAccountId,
                         null,
@@ -246,22 +242,6 @@ if ($action === 'add' || $action === 'edit') {
             <option value="active" <?= (($row['status'] ?? 'active') === 'active') ? 'selected' : '' ?>>Active</option>
             <option value="closed" <?= (($row['status'] ?? '') === 'closed') ? 'selected' : '' ?>>Closed</option>
           </select>
-        </div>
-        <div>
-          <label>Start date</label>
-          <input type="date" name="start_date" value="<?= e($row['start_date'] ?? '') ?>">
-        </div>
-        <div>
-          <label>End date</label>
-          <input type="date" name="end_date" value="<?= e($row['end_date'] ?? '') ?>">
-        </div>
-        <div>
-          <label>Mortgage NOC date</label>
-          <input type="date" name="mortgage_noc_date" value="<?= e($row['mortgage_noc_date'] ?? '') ?>">
-        </div>
-        <div>
-          <label>Reconveyance date</label>
-          <input type="date" name="reconveyance_date" value="<?= e($row['reconveyance_date'] ?? '') ?>">
         </div>
         <div class="full">
           <label>Notes</label>
