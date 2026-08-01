@@ -30,14 +30,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $notes = post('notes', '');
 
-        if (!$customerId) {
-            $newName = trim(post('customer_name', ''));
-            if ($newName === '') {
-                flash('error', 'Select an existing customer or enter a name for a new one.');
-                redirect('pages/bookings.php?action=' . ($editId ? 'edit&id=' . $editId : 'add'));
-            }
+        $customerName = trim(post('customer_name', ''));
+        $customerPhone = post('customer_phone', '');
+        $customerEmail = post('customer_email', '');
+        $customerAddress = post('customer_address', '');
+        if ($customerName === '') {
+            flash('error', 'Enter the customer\'s name.');
+            redirect('pages/bookings.php?action=' . ($editId ? 'edit&id=' . $editId : 'add'));
+        }
+
+        if ($customerId) {
+            // Existing customer selected — keep their saved record in sync with any edits made here
+            $pdo->prepare('UPDATE customers SET name=?, phone=?, email=?, address=? WHERE id=?')
+                ->execute([$customerName, $customerPhone, $customerEmail, $customerAddress, $customerId]);
+        } else {
             $cIns = $pdo->prepare('INSERT INTO customers (name, phone, email, address) VALUES (?,?,?,?)');
-            $cIns->execute([$newName, post('customer_phone', ''), post('customer_email', ''), post('customer_address', '')]);
+            $cIns->execute([$customerName, $customerPhone, $customerEmail, $customerAddress]);
             $customerId = (int) $pdo->lastInsertId();
         }
 
@@ -149,11 +157,13 @@ if ($action === 'add' || $action === 'edit') {
     $customerDetailsMap = [];
     foreach ($customers as $cust) {
         $customerDetailsMap[(int) $cust['id']] = [
+            'name' => $cust['name'],
             'phone' => $cust['phone'] ?: '',
             'email' => $cust['email'] ?: '',
             'address' => $cust['address'] ?: '',
         ];
     }
+    $preCustomer = $customerDetailsMap[$preCustomerId] ?? ['name' => '', 'phone' => '', 'email' => '', 'address' => ''];
     $customerBookingsMap = [];
     $custBookingsStmt = $pdo->query(
         "SELECT bk.id, bk.customer_id, bk.property_type, bk.plot_no, bk.total_amount,
@@ -204,35 +214,31 @@ if ($action === 'add' || $action === 'edit') {
             <?= company_options($pdo, $preCompany) ?>
           </select>
         </div>
-        <div id="new_customer_fields" class="full" style="display:none">
+        <div id="customer_fields" class="full">
           <div class="form-grid" style="padding:0">
             <div>
               <label>Customer name</label>
-              <input type="text" name="customer_name" id="new_customer_name">
+              <input type="text" name="customer_name" id="customer_name" required value="<?= e($preCustomer['name']) ?>">
             </div>
             <div>
               <label>Phone</label>
-              <input type="text" name="customer_phone">
+              <input type="text" name="customer_phone" id="customer_phone" value="<?= e($preCustomer['phone']) ?>">
             </div>
             <div>
               <label>Email (optional)</label>
-              <input type="email" name="customer_email">
+              <input type="email" name="customer_email" id="customer_email" value="<?= e($preCustomer['email']) ?>">
             </div>
             <div class="full">
               <label>Address (optional)</label>
-              <textarea name="customer_address"></textarea>
+              <textarea name="customer_address" id="customer_address"><?= e($preCustomer['address']) ?></textarea>
             </div>
           </div>
+          <p class="muted" id="customer_fields_hint" style="font-size:0.78rem;margin:0.5rem 0 0;display:<?= $preCustomerId ? '' : 'none' ?>">
+            Editing these updates the selected customer's saved record.
+          </p>
         </div>
-        <div id="customer_info_panel" class="full" style="display:none">
-          <table class="detail-table">
-            <tbody>
-              <tr><td>Phone</td><td id="ci_phone">—</td></tr>
-              <tr><td>Email</td><td id="ci_email">—</td></tr>
-              <tr><td>Address</td><td id="ci_address">—</td></tr>
-            </tbody>
-          </table>
-          <div id="ci_bookings" style="margin-top:0.75rem"></div>
+        <div id="customer_bookings_panel" class="full" style="display:none">
+          <div id="ci_bookings"></div>
         </div>
         <div>
           <label>Project (optional)</label>
@@ -292,12 +298,12 @@ if ($action === 'add' || $action === 'edit') {
         var bookingsUrl = <?= json_encode(base_url('pages/bookings.php')) ?>;
 
         var customerSelect = document.getElementById('customer_select');
-        var newCustomerFields = document.getElementById('new_customer_fields');
-        var newCustomerName = document.getElementById('new_customer_name');
-        var infoPanel = document.getElementById('customer_info_panel');
-        var ciPhone = document.getElementById('ci_phone');
-        var ciEmail = document.getElementById('ci_email');
-        var ciAddress = document.getElementById('ci_address');
+        var nameEl = document.getElementById('customer_name');
+        var phoneEl = document.getElementById('customer_phone');
+        var emailEl = document.getElementById('customer_email');
+        var addressEl = document.getElementById('customer_address');
+        var hintEl = document.getElementById('customer_fields_hint');
+        var bookingsPanel = document.getElementById('customer_bookings_panel');
         var ciBookings = document.getElementById('ci_bookings');
         var propertyTypeEl = document.getElementById('property_type');
         var plotNoField = document.getElementById('plot_no_field');
@@ -309,19 +315,32 @@ if ($action === 'add' || $action === 'edit') {
           return '₹' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
-        function showCustomerInfo() {
+        function fillCustomerFields() {
+          var cid = customerSelect.value;
+          var d = CUSTOMER_DETAILS[cid];
+          if (cid && d) {
+            nameEl.value = d.name || '';
+            phoneEl.value = d.phone || '';
+            emailEl.value = d.email || '';
+            addressEl.value = d.address || '';
+            hintEl.style.display = '';
+          } else {
+            nameEl.value = '';
+            phoneEl.value = '';
+            emailEl.value = '';
+            addressEl.value = '';
+            hintEl.style.display = 'none';
+          }
+        }
+
+        function showCustomerBookings() {
           var cid = customerSelect.value;
           ciBookings.innerHTML = '';
-          if (!cid || !CUSTOMER_DETAILS[cid]) {
-            infoPanel.style.display = 'none';
+          var bookings = (cid && CUSTOMER_BOOKINGS[cid]) || [];
+          if (!cid) {
+            bookingsPanel.style.display = 'none';
             return;
           }
-          var d = CUSTOMER_DETAILS[cid];
-          ciPhone.textContent = d.phone || '—';
-          ciEmail.textContent = d.email || '—';
-          ciAddress.textContent = d.address || '—';
-
-          var bookings = CUSTOMER_BOOKINGS[cid] || [];
           if (bookings.length) {
             var label = document.createElement('div');
             label.className = 'detail-label';
@@ -352,15 +371,12 @@ if ($action === 'add' || $action === 'edit') {
             empty.textContent = 'No existing bookings for this customer yet.';
             ciBookings.appendChild(empty);
           }
-
-          infoPanel.style.display = '';
+          bookingsPanel.style.display = '';
         }
 
-        function toggleCustomer() {
-          var isNew = customerSelect.value === '';
-          newCustomerFields.style.display = isNew ? '' : 'none';
-          newCustomerName.required = isNew;
-          showCustomerInfo();
+        function onCustomerChange() {
+          fillCustomerFields();
+          showCustomerBookings();
         }
         function togglePlotNo() {
           plotNoField.style.display = propertyTypeEl.value === 'plot' ? '' : 'none';
@@ -371,12 +387,12 @@ if ($action === 'add' || $action === 'edit') {
           totalPreview.value = money(area * rate);
         }
 
-        customerSelect.addEventListener('change', toggleCustomer);
+        customerSelect.addEventListener('change', onCustomerChange);
         propertyTypeEl.addEventListener('change', togglePlotNo);
         areaEl.addEventListener('input', recalcTotal);
         rateEl.addEventListener('input', recalcTotal);
 
-        toggleCustomer();
+        showCustomerBookings();
         togglePlotNo();
       })();
     </script>
