@@ -86,7 +86,7 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
                       ?>
                         <tr class="row-clickable" data-row-toggle="<?= e($detailId) ?>">
                           <td class="select-col"><input type="checkbox" class="bulk-checkbox" name="txn_ids[]" value="<?= (int) $row['id'] ?>"></td>
-                          <td><span class="row-caret">▸</span><?= e($row['txn_date']) ?></td>
+                          <td><span class="row-caret">▸</span><?= e(format_date($row['txn_date'])) ?></td>
                           <td><?= e($row['investor_name'] ?? '—') ?></td>
                           <td><?= e($row['project_name'] ?? '—') ?></td>
                           <td><?= e($row['category_name']) ?></td>
@@ -247,7 +247,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
           <div class="report-doc-title">Investment Report</div>
           <div class="print-meta report-meta" style="text-align:left"><?= count($exportRows) ?> <?= e($entryWord) ?> · <?= e($rangeLabel) ?></div>
         </div>
-        <div class="print-meta report-meta">Generated <?= e(date('d M Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
+        <div class="print-meta report-meta">Generated <?= e(date('d-m-Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
       </div>
 
       <div class="report-summary">

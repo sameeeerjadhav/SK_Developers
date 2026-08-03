@@ -53,7 +53,7 @@ require __DIR__ . '/../includes/header.php';
         <tbody>
           <?php foreach ($rows as $row): ?>
             <tr>
-              <td><?= e($row['txn_date']) ?></td>
+              <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e($row['company_name']) ?></td>
               <td><?= e($row['project_name'] ?? '—') ?></td>
               <td><?= e($row['category_name']) ?> <span class="muted" style="font-size:0.72rem">(<?= e(str_replace('_',' ',$row['section'])) ?>)</span></td>

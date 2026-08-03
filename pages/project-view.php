@@ -127,7 +127,7 @@ function render_ledger_rows(array $rows): void
         <tbody>
           <?php foreach ($recent as $row): ?>
             <tr>
-              <td><?= e($row['txn_date']) ?></td>
+              <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?></td>
               <td><?= e($row['category_name']) ?></td>
               <td><?= txn_type_chip($row['txn_type']) ?></td>

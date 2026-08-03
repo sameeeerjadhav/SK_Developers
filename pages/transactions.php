@@ -91,7 +91,7 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
             <tbody>
               <?php foreach ($rows as $row): ?>
                 <tr>
-                  <td><?= e($row['txn_date']) ?></td>
+                  <td><?= e(format_date($row['txn_date'])) ?></td>
                   <td>
                     <strong><?= e($row['company_name']) ?></strong>
                     <div class="muted" style="font-size:0.75rem"><?= e($row['project_name'] ?? 'No project') ?><?= $row['partner_name'] ? ' · ' . e($row['partner_name']) : '' ?></div>

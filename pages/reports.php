@@ -3,11 +3,22 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-[$from, $to, $month, $year] = period_from_request();
 $type = get('type', 'pnl'); // pnl | project | bank | monthly
 $companyId = get('company_id') !== '' ? (int) get('company_id') : null;
 $projectId = get('project_id') !== '' ? (int) get('project_id') : null;
 $bankId = get('bank_account_id') !== '' ? (int) get('bank_account_id') : null;
+
+$filterFrom = get('from', '');
+$filterTo = get('to', '');
+[$fromMonth, $toMonth, $month, $year] = period_from_request();
+if ($month !== '' || $year !== '') {
+    if ($filterFrom === '' && $filterTo === '') {
+        $filterFrom = $fromMonth ?: '';
+        $filterTo = $toMonth ?: '';
+    }
+}
+$from = $filterFrom !== '' ? $filterFrom : null;
+$to = $filterTo !== '' ? $filterTo : null;
 
 $pageTitle = 'Reports & PDF';
 $pageSub = 'Print or Save as PDF from the browser. Choose report type and date range.';
@@ -29,6 +40,14 @@ $periodText = period_label($from, $to, $month, $year);
       </select>
     </div>
     <?= period_filter_fields($month, $year) ?>
+    <div class="field">
+      <label>From</label>
+      <input type="date" name="from" value="<?= e($filterFrom) ?>">
+    </div>
+    <div class="field">
+      <label>To</label>
+      <input type="date" name="to" value="<?= e($filterTo) ?>">
+    </div>
     <div class="field">
       <label>Company</label>
       <select name="company_id"><option value="">All</option><?= company_options($pdo, $companyId) ?></select>
@@ -64,7 +83,7 @@ $periodText = period_label($from, $to, $month, $year);
       <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
       <div class="print-meta report-meta" style="text-align:left"><?= e(ucfirst($type)) ?> report · <?= e($periodText) ?></div>
     </div>
-    <div class="print-meta report-meta">Generated <?= e(date('d M Y H:i')) ?><br><?= e(current_user()['name'] ?? '') ?></div>
+    <div class="print-meta report-meta">Generated <?= e(date('d-m-Y H:i')) ?><br><?= e(current_user()['name'] ?? '') ?></div>
   </div>
 
 <?php if ($type === 'pnl' || $type === 'monthly'):

@@ -72,7 +72,7 @@ require __DIR__ . '/../includes/header.php';
         <tbody>
           <?php foreach ($rows as $row): ?>
             <tr>
-              <td><?= e($row['txn_date']) ?></td>
+              <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e($row['category_name']) ?></td>
               <td><?= e($row['project_name'] ?? '—') ?></td>
               <td><?= txn_type_chip($row['txn_type']) ?></td>

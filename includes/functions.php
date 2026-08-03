@@ -148,7 +148,7 @@ function format_date(?string $date): string
         return '—';
     }
     $ts = strtotime($date);
-    return $ts ? date('d M Y', $ts) : $date;
+    return $ts ? date('d-m-Y', $ts) : $date;
 }
 
 function period_label(?string $from, ?string $to, string $month = '', string $year = ''): string
