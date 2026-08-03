@@ -301,7 +301,7 @@ body.sidebar-open { overflow: hidden; }
   margin-bottom: 1.15rem;
 }
 .stat-grid.dense {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 .stat-card {
   position: relative;
@@ -336,8 +336,10 @@ body.sidebar-open { overflow: hidden; }
   letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.35rem;
 }
 .stat-value {
-  font-size: clamp(1rem, 1.6vw, 1.35rem);
-  font-weight: 800; letter-spacing: -0.03em;
+  font-size: clamp(0.92rem, 1.4vw, 1.3rem);
+  font-weight: 800; letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .stat-hint { margin-top: 0.35rem; font-size: 0.75rem; color: var(--muted); }
 
