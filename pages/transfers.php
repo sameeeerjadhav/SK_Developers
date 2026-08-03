@@ -106,7 +106,7 @@ if ($action === 'add') {
         </div>
         <div>
           <label>Company</label>
-          <select name="company_id" required data-company-accounts="from_account_id" data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>" id="transfer_company">
+          <select name="company_id" required id="transfer_company">
             <?= company_options($pdo) ?>
           </select>
         </div>
@@ -161,6 +161,7 @@ if ($action === 'add') {
     <script>
       (function () {
         var toAccountGroup = document.getElementById('toAccountGroup');
+        var fromAccountSelect = document.getElementById('from_account_id');
         var toAccountSelect = document.getElementById('to_account_id');
         var externalGroup = document.getElementById('externalGroup');
         var recipientNameInput = document.getElementById('recipient_name');
@@ -179,19 +180,32 @@ if ($action === 'add') {
         document.getElementById('type_internal').addEventListener('change', updateTransferType);
         document.getElementById('type_external').addEventListener('change', updateTransferType);
         updateTransferType();
-      })();
 
-      document.getElementById('transfer_company')?.addEventListener('change', function(){
-        // also refresh to-account via second fetch
-        var companyId = this.value;
-        var url = <?= json_encode(base_url('api/bank-accounts.php')) ?> + '?company_id=' + encodeURIComponent(companyId);
-        fetch(url,{credentials:'same-origin'}).then(r=>r.json()).then(function(rows){
-          var html = '<option value="">None</option>';
-          rows.forEach(function(row){ html += '<option value="'+row.id+'">'+(row.account_name||'')+' — '+(row.bank_name||'')+'</option>'; });
-          document.getElementById('from_account_id').innerHTML = html;
-          document.getElementById('to_account_id').innerHTML = html;
+        // The "To account" list must never offer whichever account is currently selected as "From".
+        function syncToAccountOptions() {
+          var fromVal = fromAccountSelect.value;
+          Array.prototype.forEach.call(toAccountSelect.options, function (opt) {
+            opt.hidden = fromVal !== '' && opt.value === fromVal;
+          });
+          if (fromVal !== '' && toAccountSelect.value === fromVal) {
+            toAccountSelect.value = '';
+          }
+        }
+        fromAccountSelect.addEventListener('change', syncToAccountOptions);
+        syncToAccountOptions();
+
+        document.getElementById('transfer_company').addEventListener('change', function () {
+          var companyId = this.value;
+          var url = <?= json_encode(base_url('api/bank-accounts.php')) ?> + '?company_id=' + encodeURIComponent(companyId);
+          fetch(url, { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (rows) {
+            var html = '<option value="">None</option>';
+            rows.forEach(function (row) { html += '<option value="' + row.id + '">' + (row.account_name || '') + ' — ' + (row.bank_name || '') + '</option>'; });
+            fromAccountSelect.innerHTML = html;
+            toAccountSelect.innerHTML = html;
+            syncToAccountOptions();
+          });
         });
-      });
+      })();
     </script>
     <?php require __DIR__ . '/../includes/footer.php'; exit;
 }
