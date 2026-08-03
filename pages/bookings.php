@@ -397,7 +397,7 @@ if ($action === 'add' || $action === 'edit') {
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/bookings.php')) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
-    <div class="card" style="max-width:820px">
+    <div class="card">
       <form method="post" class="form-grid">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save_booking">
