@@ -693,12 +693,12 @@ require __DIR__ . '/../includes/header.php';
     <div class="stat-value text-danger"><?= money($totalOut) ?></div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Net investment</div>
-    <div class="stat-value <?= ($totalIn - $totalOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($totalIn - $totalOut) ?></div>
-  </div>
-  <div class="stat-card">
     <div class="stat-label">Interest amount</div>
     <div class="stat-value"><?= money($totalInterest) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Net investment</div>
+    <div class="stat-value <?= ($totalIn - $totalOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($totalIn - $totalOut) ?></div>
   </div>
 </div>
 <form class="filters" method="get">
