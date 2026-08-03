@@ -83,6 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($action === 'add') {
+    $allBankAccounts = $pdo->query(
+        'SELECT ba.id, ba.account_name, ba.bank_name, c.name AS company_name
+         FROM bank_accounts ba JOIN companies c ON c.id = ba.company_id
+         WHERE ba.status = "active" ORDER BY c.name, ba.account_name'
+    )->fetchAll();
     $pageTitle = 'Bank transfer';
     $pageSub = 'Move money between accounts without booking a fake expense.';
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/transfers.php')) . '">Back</a>';
@@ -120,7 +125,12 @@ if ($action === 'add') {
         </div>
         <div id="toAccountGroup">
           <label>To account</label>
-          <select name="to_account_id" id="to_account_id" required><?= bank_account_options($pdo) ?></select>
+          <select name="to_account_id" id="to_account_id" required>
+            <option value="">None</option>
+            <?php foreach ($allBankAccounts as $acc): ?>
+              <option value="<?= (int) $acc['id'] ?>"><?= e($acc['account_name'] . ' — ' . $acc['bank_name'] . ' (' . $acc['company_name'] . ')') ?></option>
+            <?php endforeach; ?>
+          </select>
         </div>
         <div id="externalGroup" class="full" style="display:none">
           <div class="form-grid" style="padding:0">
@@ -201,7 +211,6 @@ if ($action === 'add') {
             var html = '<option value="">None</option>';
             rows.forEach(function (row) { html += '<option value="' + row.id + '">' + (row.account_name || '') + ' — ' + (row.bank_name || '') + '</option>'; });
             fromAccountSelect.innerHTML = html;
-            toAccountSelect.innerHTML = html;
             syncToAccountOptions();
           });
         });
