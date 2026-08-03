@@ -656,6 +656,7 @@ $stmt->execute($params);
 $rows = $stmt->fetchAll();
 $totalIn = array_sum(array_map(fn($r) => $r['txn_type'] === 'credit' ? (float)$r['amount'] : 0, $rows));
 $totalOut = array_sum(array_map(fn($r) => $r['txn_type'] === 'debit' ? (float)$r['amount'] : 0, $rows));
+$totalInterest = array_sum(array_map(fn($r) => (float) ($r['interest_amount'] ?? 0), $rows));
 
 $attachmentsByTxn = [];
 if ($rows) {
@@ -696,8 +697,8 @@ require __DIR__ . '/../includes/header.php';
     <div class="stat-value <?= ($totalIn - $totalOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($totalIn - $totalOut) ?></div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Entries</div>
-    <div class="stat-value"><?= count($rows) ?></div>
+    <div class="stat-label">Interest amount</div>
+    <div class="stat-value"><?= money($totalInterest) ?></div>
   </div>
 </div>
 <form class="filters" method="get">
