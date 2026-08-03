@@ -542,10 +542,6 @@ if ($action === 'add' || $action === 'edit') {
             <?= bank_account_options($pdo, $preCompany ?: null, (int) ($txn['bank_account_id'] ?? 0), 'Cash') ?>
           </select>
         </div>
-        <div>
-          <label>Reference no.</label>
-          <input type="text" name="reference_no" value="<?= e($txn['reference_no'] ?? '') ?>">
-        </div>
         <div class="full">
           <label>Description</label>
           <textarea name="description"><?= e($txn['description'] ?? '') ?></textarea>

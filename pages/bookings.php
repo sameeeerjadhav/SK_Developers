@@ -853,9 +853,22 @@ require __DIR__ . '/../includes/header.php';
                     <label>Date</label>
                     <input type="date" name="payment_date" required value="<?= e(date('Y-m-d')) ?>">
                   </div>
-                  <div>
-                    <label>Bank account (optional)</label>
-                    <select name="bank_account_id"><?= bank_account_options($pdo, (int) $b['company_id'], null, 'Cash') ?></select>
+                  <div class="full">
+                    <label>Payment mode</label>
+                    <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.3rem">
+                      <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;color:var(--text);margin:0">
+                        <input type="radio" name="payment_mode" value="cash" class="pay-mode-radio" checked style="width:auto">
+                        Cash
+                      </label>
+                      <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;color:var(--text);margin:0">
+                        <input type="radio" name="payment_mode" value="bank" class="pay-mode-radio" style="width:auto">
+                        Bank transfer
+                      </label>
+                    </div>
+                  </div>
+                  <div class="pay-bank-account-group" style="display:none">
+                    <label>Bank account</label>
+                    <select name="bank_account_id" class="pay-bank-account-select"><?= bank_account_options($pdo, (int) $b['company_id']) ?></select>
                   </div>
                   <div class="full">
                     <label>Notes</label>

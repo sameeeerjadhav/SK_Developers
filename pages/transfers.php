@@ -156,10 +156,6 @@ if ($action === 'add') {
           <label>Amount (₹)</label>
           <input type="number" step="0.01" min="0.01" name="amount" required>
         </div>
-        <div>
-          <label>Reference</label>
-          <input type="text" name="reference_no">
-        </div>
         <div class="full">
           <label>Notes</label>
           <textarea name="notes"></textarea>

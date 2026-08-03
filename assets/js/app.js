@@ -165,6 +165,19 @@
     });
   });
 
+  // Booking payment forms: Cash vs Bank transfer toggles the account picker
+  document.addEventListener('change', function (e) {
+    if (!e.target.classList.contains('pay-mode-radio')) return;
+    var form = e.target.closest('form.record-payment-form');
+    if (!form) return;
+    var group = form.querySelector('.pay-bank-account-group');
+    var select = form.querySelector('.pay-bank-account-select');
+    if (!group || !select) return;
+    var isBank = e.target.value === 'bank';
+    group.style.display = isBank ? '' : 'none';
+    if (!isBank) select.value = '';
+  });
+
   // Live "remaining after this entry" preview on booking payment forms
   document.addEventListener('input', function (e) {
     if (!e.target.classList.contains('pay-amount-field')) return;
