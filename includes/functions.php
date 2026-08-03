@@ -716,7 +716,9 @@ function section_breakdown(PDO $pdo, int $projectId, string $section): array
 {
     $stmt = $pdo->prepare(
         'SELECT c.id, c.name, c.slug, c.sort_order,
-                COALESCE(SUM(t.amount),0) AS total
+                COALESCE(SUM(t.amount),0) AS total,
+                COALESCE(SUM(CASE WHEN t.bank_account_id IS NULL THEN t.amount ELSE 0 END),0) AS cash_total,
+                COALESCE(SUM(CASE WHEN t.bank_account_id IS NOT NULL THEN t.amount ELSE 0 END),0) AS bank_total
          FROM categories c
          LEFT JOIN transactions t ON t.category_id = c.id AND t.project_id = ?
          WHERE c.section = ?

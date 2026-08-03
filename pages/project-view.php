@@ -40,11 +40,24 @@ $pageActions =
 
 require __DIR__ . '/../includes/header.php';
 
-function render_ledger_rows(array $rows): void
+/** Renders category rows; rows with a non-zero total expand to show the Cash vs Bank account split. */
+function render_ledger_rows(array $rows, string $idPrefix): void
 {
     echo '<div class="table-wrap"><table class="data"><thead><tr><th>Particulars</th><th class="num">Amount</th></tr></thead><tbody>';
     foreach ($rows as $row) {
-        echo '<tr><td>' . e($row['name']) . '</td><td class="num">' . money($row['total']) . '</td></tr>';
+        $total = (float) $row['total'];
+        if ($total == 0.0) {
+            echo '<tr><td>' . e($row['name']) . '</td><td class="num">' . money($total) . '</td></tr>';
+            continue;
+        }
+        $detailId = $idPrefix . '-cat-' . $row['id'];
+        echo '<tr class="row-clickable" data-row-toggle="' . e($detailId) . '"><td><span class="row-caret">▸</span>' . e($row['name']) . '</td><td class="num">' . money($total) . '</td></tr>';
+        echo '<tr class="row-detail" id="' . e($detailId) . '" hidden><td colspan="2">';
+        echo '<table class="detail-table"><tbody>';
+        echo '<tr><td>Cash</td><td>' . money($row['cash_total']) . '</td></tr>';
+        echo '<tr><td>Bank account</td><td>' . money($row['bank_total']) . '</td></tr>';
+        echo '</tbody></table>';
+        echo '</td></tr>';
     }
     echo '</tbody></table></div>';
 }
@@ -86,17 +99,17 @@ function render_ledger_rows(array $rows): void
 <div class="grid-3">
   <div class="card ledger-block credit">
     <h3>Credit</h3>
-    <?php render_ledger_rows($credits); ?>
+    <?php render_ledger_rows($credits, 'credit'); ?>
     <div class="ledger-total"><span>Total credit</span><span class="text-success"><?= money($creditTotal) ?></span></div>
   </div>
   <div class="card ledger-block debit">
     <h3>Land Purchase (Debit)</h3>
-    <?php render_ledger_rows($land); ?>
+    <?php render_ledger_rows($land, 'land'); ?>
     <div class="ledger-total"><span>Total land</span><span class="text-danger"><?= money($landTotal) ?></span></div>
   </div>
   <div class="card ledger-block expense">
     <h3>Expenses</h3>
-    <?php render_ledger_rows($expenses); ?>
+    <?php render_ledger_rows($expenses, 'expense'); ?>
     <div class="ledger-total"><span>Total expenses</span><span class="text-danger"><?= money($expenseTotal) ?></span></div>
     <div class="profit-row">
       <span>Profit</span>
