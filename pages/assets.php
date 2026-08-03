@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $currentValue = post('current_value') !== '' ? (float) post('current_value') : null;
         $notes = post('notes', '');
         $editId = (int) post('id', 0);
+        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         if (!$companyId || $name === '') {
             flash('error', 'Company and asset name are required.');
             redirect('pages/assets.php?action=add');
@@ -29,6 +30,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $stmt = $pdo->prepare('INSERT INTO assets (company_id, name, asset_type, purchase_date, purchase_value, current_value, notes) VALUES (?,?,?,?,?,?,?)');
             $stmt->execute([$companyId, $name, $type, $purchaseDate, $purchaseValue, $currentValue, $notes]);
+            $newId = (int) $pdo->lastInsertId();
+
+            if ($purchaseValue > 0) {
+                $catId = category_id_by_slug($pdo, 'general', 'asset_purchase');
+                if ($catId) {
+                    create_transaction(
+                        $pdo, $companyId, $catId, 'debit', $purchaseValue, $purchaseDate ?: date('Y-m-d'),
+                        null, $bankAccountId, null, null, 'Asset purchase — ' . $name,
+                        current_user()['id'] ?? null
+                    );
+                }
+            }
             flash('success', 'Asset added.');
         }
         redirect('pages/assets.php');
@@ -51,14 +64,17 @@ if ($action === 'add' || $action === 'edit') {
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/assets.php')) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
-    <div class="card" style="max-width:720px">
+    <div class="card">
       <form method="post" class="form-grid">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="id" value="<?= (int)($row['id'] ?? 0) ?>">
         <div>
           <label>Company</label>
-          <select name="company_id" required><?= company_options($pdo, (int)($row['company_id'] ?? 0)) ?></select>
+          <select name="company_id" required
+            <?php if (!$row): ?>data-company-accounts="asset_bank_account_id" data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>"<?php endif; ?>>
+            <?= company_options($pdo, (int)($row['company_id'] ?? 0)) ?>
+          </select>
         </div>
         <div>
           <label>Asset type</label>
@@ -80,6 +96,25 @@ if ($action === 'add' || $action === 'edit') {
           <label>Current value (₹)</label>
           <input type="number" step="0.01" name="current_value" value="<?= e((string)($row['current_value'] ?? '')) ?>">
         </div>
+        <?php if (!$row): ?>
+        <div class="full">
+          <label>Payment mode</label>
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.3rem">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;color:var(--text);margin:0">
+              <input type="radio" name="payment_mode" value="cash" class="pay-mode-radio" checked style="width:auto">
+              Cash
+            </label>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;color:var(--text);margin:0">
+              <input type="radio" name="payment_mode" value="bank" class="pay-mode-radio" style="width:auto">
+              Bank transfer
+            </label>
+          </div>
+        </div>
+        <div class="pay-bank-account-group" style="display:none">
+          <label>Bank account</label>
+          <select name="bank_account_id" id="asset_bank_account_id" class="pay-bank-account-select"><?= bank_account_options($pdo, (int)($row['company_id'] ?? 0) ?: null) ?></select>
+        </div>
+        <?php endif; ?>
         <div class="full">
           <label>Notes</label>
           <textarea name="notes"><?= e($row['notes'] ?? '') ?></textarea>
