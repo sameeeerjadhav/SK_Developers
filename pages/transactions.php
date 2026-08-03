@@ -525,7 +525,7 @@ require __DIR__ . '/../includes/header.php';
   <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Search</label>
-    <input type="search" name="q" value="<?= e($q) ?>" placeholder="Reference, description…">
+    <input type="search" name="q" value="<?= e($q) ?>">
   </div>
   <div class="field">
     <label>Company</label>
