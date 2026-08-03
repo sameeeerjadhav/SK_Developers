@@ -165,10 +165,11 @@
     });
   });
 
-  // Booking payment forms: Cash vs Bank transfer toggles the account picker
+  // Booking payment forms (record payment, and the initial payment on booking creation):
+  // Cash vs Bank transfer toggles the account picker
   document.addEventListener('change', function (e) {
     if (!e.target.classList.contains('pay-mode-radio')) return;
-    var form = e.target.closest('form.record-payment-form');
+    var form = e.target.closest('form');
     if (!form) return;
     var group = form.querySelector('.pay-bank-account-group');
     var select = form.querySelector('.pay-bank-account-select');

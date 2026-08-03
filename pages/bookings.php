@@ -208,7 +208,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$customerId, $companyId, $projectId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $userId]);
             $newId = (int) $pdo->lastInsertId();
             audit_log($pdo, 'create', 'booking', $newId, 'Created booking for customer #' . $customerId);
-            flash('success', 'Booking created. Record payments from the list below.');
+
+            $initialAmount = (float) post('initial_amount_received', 0);
+            if ($initialAmount > 0) {
+                $initialDate = post('initial_payment_date') ?: date('Y-m-d');
+                $initialBankAccountId = post('initial_bank_account_id') !== '' ? (int) post('initial_bank_account_id') : null;
+                $propertyLabel = $propertyType === 'plot'
+                    ? ('Plot ' . ($plotNo ?: '—'))
+                    : ucwords(str_replace('_', ' ', $propertyType));
+                $initCatId = category_id_by_slug($pdo, 'credit', 'booking');
+                $initDescription = 'Booking payment — ' . $customerName . ' — ' . $propertyLabel;
+                $initTxnId = create_transaction(
+                    $pdo, $companyId, (int) $initCatId, 'credit', $initialAmount, $initialDate,
+                    $projectId, $initialBankAccountId, null, null, $initDescription, $userId ? (int) $userId : null
+                );
+                $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)')
+                    ->execute([$newId, $initTxnId, 'received', $initialAmount, $initialDate, 'Initial payment at booking creation', $userId]);
+                audit_log($pdo, 'create', 'booking_payment', $newId, 'Recorded initial payment ' . money($initialAmount) . ' for booking #' . $newId);
+            }
+
+            flash('success', 'Booking created.' . ($initialAmount > 0 ? ' Initial payment recorded.' : ' Record payments from the list below.'));
         }
         redirect('pages/bookings.php');
     }
@@ -399,7 +418,9 @@ if ($action === 'add' || $action === 'edit') {
           <label>Company</label>
           <select name="company_id" id="company_id" required
             data-company-projects="project_id"
-            data-projects-url="<?= e(base_url('api/projects.php')) ?>">
+            data-company-accounts="init_bank_account_id"
+            data-projects-url="<?= e(base_url('api/projects.php')) ?>"
+            data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
             <?= company_options($pdo, $preCompany) ?>
           </select>
         </div>
@@ -472,8 +493,38 @@ if ($action === 'add' || $action === 'edit') {
           <label>Notes</label>
           <textarea name="notes"><?= e($booking['notes'] ?? '') ?></textarea>
         </div>
+        <?php if (!$booking): ?>
+        <div class="full">
+          <label>Initial payment received (optional)</label>
+        </div>
+        <div>
+          <label>Amount received (₹)</label>
+          <input type="number" step="0.01" min="0" name="initial_amount_received" value="0">
+        </div>
+        <div>
+          <label>Date</label>
+          <input type="date" name="initial_payment_date" value="<?= e(date('Y-m-d')) ?>">
+        </div>
+        <div class="full">
+          <label>Payment mode</label>
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.3rem">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;color:var(--text);margin:0">
+              <input type="radio" name="initial_payment_mode" value="cash" class="pay-mode-radio" checked style="width:auto">
+              Cash
+            </label>
+            <label style="display:flex;align-items:center;gap:0.4rem;font-weight:600;color:var(--text);margin:0">
+              <input type="radio" name="initial_payment_mode" value="bank" class="pay-mode-radio" style="width:auto">
+              Bank transfer
+            </label>
+          </div>
+        </div>
+        <div class="pay-bank-account-group" style="display:none">
+          <label>Bank account</label>
+          <select name="initial_bank_account_id" id="init_bank_account_id" class="pay-bank-account-select"><?= bank_account_options($pdo, $preCompany ?: null) ?></select>
+        </div>
+        <?php endif; ?>
         <div class="full highlight-box">
-          Payments (received / returned) are recorded from the bookings list after saving — no need to re-enter customer or property details next time.
+          Further payments (received / returned) are recorded from the bookings list after saving — no need to re-enter customer or property details next time.
         </div>
         <div class="full form-actions">
           <button class="btn btn-primary" type="submit">Save booking</button>
