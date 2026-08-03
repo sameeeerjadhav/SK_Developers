@@ -675,8 +675,10 @@ $regularRows = array_values(array_filter($rows, fn($r) => in_array($r['category_
 
 $fixedIn = array_sum(array_map(fn($r) => $r['txn_type'] === 'credit' ? (float) $r['amount'] : 0, $fixedRows));
 $fixedOut = array_sum(array_map(fn($r) => $r['txn_type'] === 'debit' ? (float) $r['amount'] : 0, $fixedRows));
+$fixedInterest = array_sum(array_map(fn($r) => (float) ($r['interest_amount'] ?? 0), $fixedRows));
 $regularIn = array_sum(array_map(fn($r) => $r['txn_type'] === 'credit' ? (float) $r['amount'] : 0, $regularRows));
 $regularOut = array_sum(array_map(fn($r) => $r['txn_type'] === 'debit' ? (float) $r['amount'] : 0, $regularRows));
+$regularInterest = array_sum(array_map(fn($r) => (float) ($r['interest_amount'] ?? 0), $regularRows));
 
 $fixedCompanies = group_investment_rows_by_company($fixedRows);
 $regularCompanies = group_investment_rows_by_company($regularRows);
@@ -775,12 +777,12 @@ require __DIR__ . '/../includes/header.php';
           <div class="stat-value text-danger"><?= money($fixedOut) ?></div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Net</div>
-          <div class="stat-value <?= ($fixedIn - $fixedOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($fixedIn - $fixedOut) ?></div>
+          <div class="stat-label">Interest amount</div>
+          <div class="stat-value"><?= money($fixedInterest) ?></div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Entries</div>
-          <div class="stat-value"><?= count($fixedRows) ?></div>
+          <div class="stat-label">Net</div>
+          <div class="stat-value <?= ($fixedIn - $fixedOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($fixedIn - $fixedOut) ?></div>
         </div>
       </div>
       <?php render_investment_companies($fixedCompanies, $attachmentsByTxn, 'fixed'); ?>
@@ -807,12 +809,12 @@ require __DIR__ . '/../includes/header.php';
           <div class="stat-value text-danger"><?= money($regularOut) ?></div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Net</div>
-          <div class="stat-value <?= ($regularIn - $regularOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($regularIn - $regularOut) ?></div>
+          <div class="stat-label">Interest amount</div>
+          <div class="stat-value"><?= money($regularInterest) ?></div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Entries</div>
-          <div class="stat-value"><?= count($regularRows) ?></div>
+          <div class="stat-label">Net</div>
+          <div class="stat-value <?= ($regularIn - $regularOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($regularIn - $regularOut) ?></div>
         </div>
       </div>
       <?php render_investment_companies($regularCompanies, $attachmentsByTxn, 'regular'); ?>
