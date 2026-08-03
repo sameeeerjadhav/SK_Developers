@@ -122,14 +122,15 @@
       if (!target) return;
       var companyId = select.value;
       var url = select.getAttribute('data-accounts-url') || '../api/bank-accounts.php';
+      var emptyLabel = select.getAttribute('data-accounts-empty-label') || 'None';
       loadJson(url + '?company_id=' + encodeURIComponent(companyId))
         .then(function (rows) {
           fillSelect(target, rows.map(function (r) {
             return { id: r.id, label: (r.account_name || '') + ' — ' + (r.bank_name || '') };
-          }), 'None');
+          }), emptyLabel);
         })
         .catch(function () {
-          fillSelect(target, [], 'None');
+          fillSelect(target, [], emptyLabel);
         });
     });
   });

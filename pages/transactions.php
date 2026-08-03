@@ -340,7 +340,7 @@ if ($action === 'add' || $action === 'edit') {
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/transactions.php')) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
-    <div class="card" style="max-width:860px">
+    <div class="card">
       <form method="post" class="form-grid" enctype="multipart/form-data">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
@@ -350,6 +350,7 @@ if ($action === 'add' || $action === 'edit') {
           <select name="company_id" id="company_id" required
             data-company-projects="project_id"
             data-company-accounts="bank_account_id"
+            data-accounts-empty-label="Cash"
             data-company-partners="partner_id"
             data-projects-url="<?= e(base_url('api/projects.php')) ?>"
             data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>"
@@ -385,7 +386,7 @@ if ($action === 'add' || $action === 'edit') {
         <div>
           <label>Bank account (optional)</label>
           <select name="bank_account_id" id="bank_account_id">
-            <?= bank_account_options($pdo, $preCompany ?: null, (int) ($txn['bank_account_id'] ?? 0)) ?>
+            <?= bank_account_options($pdo, $preCompany ?: null, (int) ($txn['bank_account_id'] ?? 0), 'Cash') ?>
           </select>
         </div>
         <div>

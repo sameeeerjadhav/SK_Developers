@@ -328,7 +328,7 @@ function project_options(PDO $pdo, ?int $companyId = null, ?int $selected = null
     return $html;
 }
 
-function bank_account_options(PDO $pdo, ?int $companyId = null, ?int $selected = null): string
+function bank_account_options(PDO $pdo, ?int $companyId = null, ?int $selected = null, string $noneLabel = 'None'): string
 {
     if ($companyId) {
         $stmt = $pdo->prepare('SELECT id, account_name, bank_name FROM bank_accounts WHERE company_id = ? AND status = "active" ORDER BY account_name');
@@ -337,7 +337,7 @@ function bank_account_options(PDO $pdo, ?int $companyId = null, ?int $selected =
         $stmt = $pdo->query('SELECT id, account_name, bank_name FROM bank_accounts WHERE status = "active" ORDER BY account_name');
     }
     $rows = $stmt->fetchAll();
-    $html = '<option value="">None</option>';
+    $html = '<option value="">' . e($noneLabel) . '</option>';
     foreach ($rows as $row) {
         $sel = ((int) $row['id'] === (int) $selected) ? ' selected' : '';
         $html .= '<option value="' . (int) $row['id'] . '"' . $sel . '>' . e($row['account_name'] . ' — ' . $row['bank_name']) . '</option>';
