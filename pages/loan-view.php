@@ -256,7 +256,7 @@ require __DIR__ . '/../includes/header.php';
     </div>
     <div>
       <label>Bank account (optional)</label>
-      <select name="bank_account_id"><?= bank_account_options($pdo, (int) $loan['company_id']) ?></select>
+      <select name="bank_account_id"><?= bank_account_options($pdo, (int) $loan['company_id'], null, 'Cash') ?></select>
     </div>
     <?php if ($borrowers): ?>
     <div>
@@ -338,7 +338,7 @@ require __DIR__ . '/../includes/header.php';
                   </div>
                   <div>
                     <label>Bank account (optional)</label>
-                    <select name="bank_account_id"><?= bank_account_options($pdo, (int) $loan['company_id'], (int) ($r['bank_account_id'] ?? 0)) ?></select>
+                    <select name="bank_account_id"><?= bank_account_options($pdo, (int) $loan['company_id'], (int) ($r['bank_account_id'] ?? 0), 'Cash') ?></select>
                   </div>
                   <?php if ($borrowers): ?>
                   <div>

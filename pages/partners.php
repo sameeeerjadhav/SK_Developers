@@ -90,7 +90,7 @@ function render_partner_rows(PDO $pdo, array $partners, array $partnerTxns): voi
                     </div>
                     <div class="full">
                       <label>Bank account (optional)</label>
-                      <select name="bank_account_id"><?= bank_account_options($pdo, (int) ($p['company_id'] ?? 0) ?: null) ?></select>
+                      <select name="bank_account_id"><?= bank_account_options($pdo, (int) ($p['company_id'] ?? 0) ?: null, null, 'Cash') ?></select>
                     </div>
                     <div class="full">
                       <label>Notes</label>

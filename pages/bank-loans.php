@@ -119,6 +119,7 @@ if ($action === 'add' || $action === 'edit') {
           <select name="company_id" required
             data-company-projects="project_id"
             data-company-accounts="bank_account_id"
+            data-accounts-empty-label="Cash"
             data-projects-url="<?= e(base_url('api/projects.php')) ?>"
             data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
             <?= company_options($pdo, $preCompany) ?>
@@ -260,7 +261,7 @@ if ($action === 'add' || $action === 'edit') {
         <div>
           <label>Credit to bank account (optional)</label>
           <select name="bank_account_id" id="bank_account_id">
-            <?= bank_account_options($pdo, $preCompany ?: null) ?>
+            <?= bank_account_options($pdo, $preCompany ?: null, null, 'Cash') ?>
           </select>
         </div>
         <div class="full highlight-box">

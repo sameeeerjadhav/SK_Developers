@@ -119,7 +119,7 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                               </div>
                               <div>
                                 <label>Bank account (optional)</label>
-                                <select name="bank_account_id"><?= bank_account_options($pdo, $loan['company_id'], (int) ($r['bank_account_id'] ?? 0)) ?></select>
+                                <select name="bank_account_id"><?= bank_account_options($pdo, $loan['company_id'], (int) ($r['bank_account_id'] ?? 0), 'Cash') ?></select>
                               </div>
                               <?php if ($loanBorrowers): ?>
                               <div>
