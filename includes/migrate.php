@@ -84,9 +84,13 @@ function ensure_v2_schema(PDO $pdo): void
         $pdo->exec("CREATE TABLE IF NOT EXISTS bank_transfers (
           id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           company_id INT UNSIGNED NOT NULL,
-          transfer_type ENUM('internal','external') NOT NULL DEFAULT 'internal',
-          from_account_id INT UNSIGNED NOT NULL,
+          transfer_type ENUM('internal','external','inbound') NOT NULL DEFAULT 'internal',
+          from_account_id INT UNSIGNED NULL,
           to_account_id INT UNSIGNED NULL,
+          source_name VARCHAR(160) NULL,
+          source_account_number VARCHAR(60) NULL,
+          source_ifsc VARCHAR(20) NULL,
+          source_bank_name VARCHAR(160) NULL,
           recipient_name VARCHAR(160) NULL,
           recipient_account_number VARCHAR(60) NULL,
           recipient_ifsc VARCHAR(20) NULL,
@@ -105,12 +109,32 @@ function ensure_v2_schema(PDO $pdo): void
 
     $transferCols = $pdo->query("SHOW COLUMNS FROM bank_transfers")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('transfer_type', $transferCols, true)) {
-        $pdo->exec("ALTER TABLE bank_transfers ADD COLUMN transfer_type ENUM('internal','external') NOT NULL DEFAULT 'internal' AFTER company_id");
+        $pdo->exec("ALTER TABLE bank_transfers ADD COLUMN transfer_type ENUM('internal','external','inbound') NOT NULL DEFAULT 'internal' AFTER company_id");
         $pdo->exec('ALTER TABLE bank_transfers MODIFY to_account_id INT UNSIGNED NULL');
         $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_name VARCHAR(160) NULL AFTER to_account_id');
         $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_account_number VARCHAR(60) NULL AFTER recipient_name');
         $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_ifsc VARCHAR(20) NULL AFTER recipient_account_number');
         $pdo->exec('ALTER TABLE bank_transfers ADD COLUMN recipient_bank_name VARCHAR(160) NULL AFTER recipient_ifsc');
+    }
+    // Expand transfer types + allow null from_account for inbound; capture external source details
+    try {
+        $pdo->exec("ALTER TABLE bank_transfers MODIFY transfer_type ENUM('internal','external','inbound') NOT NULL DEFAULT 'internal'");
+    } catch (Throwable $e) {
+    }
+    try {
+        $pdo->exec('ALTER TABLE bank_transfers MODIFY from_account_id INT UNSIGNED NULL');
+    } catch (Throwable $e) {
+    }
+    $transferCols = $pdo->query("SHOW COLUMNS FROM bank_transfers")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ([
+        'source_name' => 'ALTER TABLE bank_transfers ADD COLUMN source_name VARCHAR(160) NULL AFTER from_account_id',
+        'source_account_number' => 'ALTER TABLE bank_transfers ADD COLUMN source_account_number VARCHAR(60) NULL AFTER source_name',
+        'source_ifsc' => 'ALTER TABLE bank_transfers ADD COLUMN source_ifsc VARCHAR(20) NULL AFTER source_account_number',
+        'source_bank_name' => 'ALTER TABLE bank_transfers ADD COLUMN source_bank_name VARCHAR(160) NULL AFTER source_ifsc',
+    ] as $col => $ddl) {
+        if (!in_array($col, $transferCols, true)) {
+            $pdo->exec($ddl);
+        }
     }
 
     try {
