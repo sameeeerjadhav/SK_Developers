@@ -35,14 +35,14 @@ $recentStmt->execute($recentParams);
 $recent = $recentStmt->fetchAll();
 
 $companyCards = [];
+$profitsByCompany = company_profits_bulk($pdo, $from, $to);
+$projectCounts = company_project_counts($pdo);
 foreach ($companies as $co) {
-    $s = summary_totals($pdo, (int) $co['id'], $from, $to);
-    $pc = $pdo->prepare('SELECT COUNT(*) FROM projects WHERE company_id = ?');
-    $pc->execute([(int) $co['id']]);
+    $cid = (int) $co['id'];
     $companyCards[] = [
         'company' => $co,
-        'summary' => $s,
-        'projects' => (int) $pc->fetchColumn(),
+        'profit' => $profitsByCompany[$cid] ?? 0.0,
+        'projects' => $projectCounts[$cid] ?? 0,
     ];
 }
 
@@ -115,14 +115,14 @@ require __DIR__ . '/includes/header.php';
     <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/companies.php')) ?>">Manage</a>
   </div>
   <div class="company-grid">
-    <?php foreach ($companyCards as $item): $co = $item['company']; $s = $item['summary']; ?>
+    <?php foreach ($companyCards as $item): $co = $item['company']; $profit = (float) $item['profit']; ?>
       <a class="company-card" href="<?= e(base_url('pages/projects.php?company_id=' . $co['id'])) ?>">
         <div class="kicker"><?= $co['type'] === 'main' ? 'Main company' : 'Sub company' ?></div>
         <h3><?= e($co['name']) ?></h3>
         <div class="meta"><?= (int) $item['projects'] ?> projects</div>
         <div class="ledger-total" style="margin-top:0.85rem;border:0;padding:0">
           <span class="muted">Profit</span>
-          <span class="<?= $s['profit'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($s['profit']) ?></span>
+          <span class="<?= $profit >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($profit) ?></span>
         </div>
       </a>
     <?php endforeach; ?>

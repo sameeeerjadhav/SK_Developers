@@ -75,7 +75,6 @@ function nav_icon(string $name): string
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= e(base_url('assets/css/app.css')) ?>?v=<?= (int) (@filemtime(__DIR__ . '/../assets/css/app.css') ?: time()) ?>">
-  <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>?v=<?= (int) (@filemtime(__DIR__ . '/../assets/css/print.css') ?: time()) ?>">
 </head>
 <body>
 <div class="app-shell">
@@ -116,7 +115,7 @@ function nav_icon(string $name): string
       </div>
       <?php
         $noteCount = 0;
-        try { $noteCount = count(system_notifications($pdo)); } catch (Throwable $e) {}
+        try { $noteCount = notification_count($pdo); } catch (Throwable $e) {}
       ?>
       <a class="icon-btn" href="<?= e(base_url('pages/notifications.php')) ?>" title="Notifications" aria-label="Notifications" style="position:relative;text-decoration:none">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9m4.3 13a1.7 1.7 0 0 0 3.4 0"/></svg>

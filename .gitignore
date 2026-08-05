@@ -1,6 +1,7 @@
 # Local / secrets
 config/database.php
 config/installed.lock
+config/.schema_version
 .env
 
 # OS / IDE

@@ -12,6 +12,12 @@ function ensure_v2_schema(PDO $pdo): void
     }
     $done = true;
 
+    $version = (string) (app_config('schema_version') ?? 1);
+    $marker = __DIR__ . '/../config/.schema_version';
+    if (is_file($marker) && trim((string) @file_get_contents($marker)) === $version) {
+        return;
+    }
+
     try {
         $pdo->query('SELECT 1 FROM loan_emis LIMIT 1');
     } catch (Throwable $e) {
@@ -455,5 +461,27 @@ function ensure_v2_schema(PDO $pdo): void
         if (!in_array($col, $projectCols, true)) {
             $pdo->exec($ddl);
         }
+    }
+
+  // Query performance indexes (safe to re-check)
+    ensure_db_index($pdo, 'transactions', 'idx_txn_bank_account', 'bank_account_id');
+    ensure_db_index($pdo, 'transactions', 'idx_txn_company_date', 'company_id, txn_date');
+    ensure_db_index($pdo, 'transactions', 'idx_txn_type_date', 'txn_type, txn_date');
+    ensure_db_index($pdo, 'transactions', 'idx_txn_category', 'category_id');
+
+    @file_put_contents($marker, $version);
+}
+
+function ensure_db_index(PDO $pdo, string $table, string $indexName, string $columns): void
+{
+    try {
+        $stmt = $pdo->query('SHOW INDEX FROM `' . str_replace('`', '', $table) . '`');
+        foreach ($stmt->fetchAll() as $row) {
+            if (($row['Key_name'] ?? '') === $indexName) {
+                return;
+            }
+        }
+        $pdo->exec("ALTER TABLE `$table` ADD INDEX `$indexName` ($columns)");
+    } catch (Throwable $e) {
     }
 }

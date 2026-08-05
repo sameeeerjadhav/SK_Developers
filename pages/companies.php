@@ -124,8 +124,10 @@ require __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="company-grid" style="margin-bottom:1.15rem">
-  <?php foreach ($companies as $co):
-    $s = summary_totals($pdo, (int) $co['id']);
+  <?php
+  $profitsByCompany = company_profits_bulk($pdo);
+  foreach ($companies as $co):
+    $profit = $profitsByCompany[(int) $co['id']] ?? 0.0;
   ?>
     <div class="company-card" style="cursor:default">
       <div class="kicker"><?= $co['type'] === 'main' ? 'Main company' : 'Sub company' ?></div>
@@ -133,7 +135,7 @@ require __DIR__ . '/../includes/header.php';
       <div class="meta"><?= e($co['parent_name'] ? 'Under ' . $co['parent_name'] : 'Root') ?> · <?= status_chip($co['status']) ?></div>
       <div class="ledger-total" style="margin-top:0.9rem">
         <span class="muted">Profit</span>
-        <span class="<?= $s['profit'] >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($s['profit']) ?></span>
+        <span class="<?= $profit >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($profit) ?></span>
       </div>
       <div class="form-actions" style="justify-content:flex-start;margin-top:0.85rem">
         <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/projects.php?company_id=' . $co['id'])) ?>">Projects</a>

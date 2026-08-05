@@ -252,6 +252,92 @@ function audit_log(PDO $pdo, string $action, string $entityType, ?int $entityId,
     }
 }
 
+/** Per-request cache for expensive aggregates. */
+function summary_totals_cache_key(?int $companyId, ?string $from, ?string $to): string
+{
+    return ($companyId ?? 0) . '|' . ($from ?? '') . '|' . ($to ?? '');
+}
+
+/**
+ * Company profit (credits − debits) in one query. Keys = company_id.
+ *
+ * @return array<int,float>
+ */
+function company_profits_bulk(PDO $pdo, ?string $from = null, ?string $to = null): array
+{
+    $sql = 'SELECT company_id,
+            COALESCE(SUM(CASE WHEN txn_type = "credit" THEN amount ELSE 0 END), 0)
+          - COALESCE(SUM(CASE WHEN txn_type = "debit" THEN amount ELSE 0 END), 0) AS profit
+            FROM transactions WHERE 1=1';
+    $params = [];
+    apply_date_range($sql, $params, $from, $to);
+    $sql .= ' GROUP BY company_id';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $out = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $out[(int) $row['company_id']] = (float) $row['profit'];
+    }
+    return $out;
+}
+
+/**
+ * @return array<int,int> company_id => project count
+ */
+function company_project_counts(PDO $pdo): array
+{
+    $out = [];
+    foreach ($pdo->query('SELECT company_id, COUNT(*) AS cnt FROM projects GROUP BY company_id') as $row) {
+        $out[(int) $row['company_id']] = (int) $row['cnt'];
+    }
+    return $out;
+}
+
+/**
+ * All active bank account balances in one query (per request cache).
+ *
+ * @return array<int,float> account_id => balance
+ */
+function account_balance_map(PDO $pdo): array
+{
+    static $map = null;
+    if ($map !== null) {
+        return $map;
+    }
+    $sql = 'SELECT ba.id, ba.company_id,
+            ba.opening_balance
+            + COALESCE(SUM(CASE WHEN t.txn_type = "credit" THEN t.amount WHEN t.txn_type = "debit" THEN -t.amount ELSE 0 END), 0) AS balance
+            FROM bank_accounts ba
+            LEFT JOIN transactions t ON t.bank_account_id = ba.id
+            WHERE ba.status = "active"
+            GROUP BY ba.id, ba.company_id, ba.opening_balance';
+    $map = [];
+    foreach ($pdo->query($sql) as $row) {
+        $map[(int) $row['id']] = (float) $row['balance'];
+    }
+    return $map;
+}
+
+function total_bank_balance(PDO $pdo, ?int $companyId = null): float
+{
+    $map = account_balance_map($pdo);
+    if (!$companyId) {
+        return array_sum($map);
+    }
+    $stmt = $pdo->prepare('SELECT id FROM bank_accounts WHERE status = "active" AND company_id = ?');
+    $stmt->execute([$companyId]);
+    $total = 0.0;
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
+        $total += $map[(int) $id] ?? 0.0;
+    }
+    return $total;
+}
+
+function notification_count(PDO $pdo): int
+{
+    return count(system_notifications($pdo));
+}
+
 function setup_progress(PDO $pdo): array
 {
     $accounts = (int) $pdo->query('SELECT COUNT(*) FROM bank_accounts')->fetchColumn();
@@ -266,8 +352,24 @@ function setup_progress(PDO $pdo): array
     return ['steps' => $steps, 'done' => $done, 'total' => count($steps), 'complete' => $done === count($steps)];
 }
 
-function system_notifications(PDO $pdo): array
+function system_notifications(PDO $pdo, bool $forceRefresh = false): array
 {
+    static $requestCache = null;
+    if ($requestCache !== null && !$forceRefresh) {
+        return $requestCache;
+    }
+
+    $ttl = 300; // 5 minutes — avoids heavy queries on every page navigation
+    if (
+        !$forceRefresh
+        && isset($_SESSION['notif_cache'], $_SESSION['notif_cache_at'])
+        && is_array($_SESSION['notif_cache'])
+        && (time() - (int) $_SESSION['notif_cache_at']) < $ttl
+    ) {
+        $requestCache = $_SESSION['notif_cache'];
+        return $requestCache;
+    }
+
     $notes = [];
     try {
         $due = $pdo->query("SELECT e.*, l.lender_name FROM loan_emis e JOIN bank_loans l ON l.id = e.loan_id WHERE e.status IN ('pending','partial') AND e.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) ORDER BY e.due_date ASC LIMIT 10")->fetchAll();
@@ -296,21 +398,33 @@ function system_notifications(PDO $pdo): array
     }
 
     try {
-        $accounts = $pdo->query("SELECT id, account_name, company_id FROM bank_accounts WHERE status='active'")->fetchAll();
-        foreach ($accounts as $acc) {
-            $bal = account_balance($pdo, (int) $acc['id']);
-            if ($bal < 10000) {
-                $notes[] = [
-                    'type' => 'warning',
-                    'title' => 'Low balance — ' . $acc['account_name'],
-                    'body' => 'Live balance ' . money($bal),
-                    'href' => 'pages/bank-account-view.php?id=' . $acc['id'],
-                ];
-            }
+        $lowBal = $pdo->query(
+            'SELECT ba.id, ba.account_name,
+                    ba.opening_balance
+                    + COALESCE(SUM(CASE WHEN t.txn_type = "credit" THEN t.amount WHEN t.txn_type = "debit" THEN -t.amount ELSE 0 END), 0) AS balance
+             FROM bank_accounts ba
+             LEFT JOIN transactions t ON t.bank_account_id = ba.id
+             WHERE ba.status = "active"
+             GROUP BY ba.id, ba.account_name, ba.opening_balance
+             HAVING balance < 10000
+             ORDER BY balance ASC
+             LIMIT 10'
+        )->fetchAll();
+        foreach ($lowBal as $acc) {
+            $bal = (float) $acc['balance'];
+            $notes[] = [
+                'type' => 'warning',
+                'title' => 'Low balance — ' . $acc['account_name'],
+                'body' => 'Live balance ' . money($bal),
+                'href' => 'pages/bank-account-view.php?id=' . $acc['id'],
+            ];
         }
     } catch (Throwable $e) {
     }
 
+    $_SESSION['notif_cache'] = $notes;
+    $_SESSION['notif_cache_at'] = time();
+    $requestCache = $notes;
     return $notes;
 }
 
@@ -524,6 +638,12 @@ function sum_by_category_slug(
 
 function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, ?string $to = null): array
 {
+    static $cache = [];
+    $cacheKey = summary_totals_cache_key($companyId, $from, $to);
+    if (isset($cache[$cacheKey])) {
+        return $cache[$cacheKey];
+    }
+
     $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId, $from, $to)
         + sum_by_category_slug($pdo, 'credit', 'daily_credit', $companyId, $from, $to)
         + sum_by_category_slug($pdo, 'credit', 'monthly_credit', $companyId, $from, $to);
@@ -551,21 +671,12 @@ function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, 
     $assets = scalar_sum($pdo, $assetSql, $params);
     $deposits = scalar_sum($pdo, $depositSql, $params);
 
-    $bankBalance = 0.0;
-    if ($companyId) {
-        $accStmt = $pdo->prepare('SELECT id FROM bank_accounts WHERE status = "active" AND company_id = ?');
-        $accStmt->execute([$companyId]);
-    } else {
-        $accStmt = $pdo->query('SELECT id FROM bank_accounts WHERE status = "active"');
-    }
-    foreach ($accStmt->fetchAll() as $acc) {
-        $bankBalance += account_balance($pdo, (int) $acc['id']);
-    }
+    $bankBalance = total_bank_balance($pdo, $companyId);
 
     $credits = sum_transactions($pdo, 'credit', $companyId, null, null, $from, $to);
     $debits = sum_transactions($pdo, 'debit', $companyId, null, null, $from, $to);
 
-    return [
+    $cache[$cacheKey] = [
         'investment'   => $creditInvestment,
         'partner'      => $creditPartner,
         'booking'      => $creditBooking,
@@ -580,6 +691,7 @@ function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, 
         'credits'      => $credits,
         'debits'       => $debits,
     ];
+    return $cache[$cacheKey];
 }
 
 function uploads_dir(): string
@@ -709,6 +821,11 @@ function sync_loan_borrowers(PDO $pdo, int $loanId, array $borrowers): void
 
 function account_balance(PDO $pdo, int $accountId): float
 {
+    $map = account_balance_map($pdo);
+    if (isset($map[$accountId])) {
+        return $map[$accountId];
+    }
+
     $stmt = $pdo->prepare('SELECT opening_balance FROM bank_accounts WHERE id = ?');
     $stmt->execute([$accountId]);
     $opening = (float) $stmt->fetchColumn();
