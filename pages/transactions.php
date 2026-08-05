@@ -376,6 +376,10 @@ if ($action === 'add' || $action === 'edit') {
           <label>Category</label>
           <select name="category_id" id="txn_category_id" required></select>
         </div>
+        <div class="full">
+          <label>Name (who is being paid / who this is from)</label>
+          <input type="text" name="payee_name" value="<?= e($txn['payee_name'] ?? '') ?>">
+        </div>
         <div>
           <label>Amount (₹)</label>
           <input type="number" step="0.01" min="0.01" name="amount" required value="<?= e((string) ($txn['amount'] ?? '')) ?>">
@@ -395,10 +399,6 @@ if ($action === 'add' || $action === 'edit') {
           <select name="partner_id" id="partner_id">
             <?= partner_options($pdo, $preCompany ?: null, (int) ($txn['partner_id'] ?? 0)) ?>
           </select>
-        </div>
-        <div class="full">
-          <label>Name (who is being paid / who this is from)</label>
-          <input type="text" name="payee_name" value="<?= e($txn['payee_name'] ?? '') ?>">
         </div>
         <div class="full">
           <label>Description</label>
