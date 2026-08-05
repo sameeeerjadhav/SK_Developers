@@ -4,6 +4,7 @@ require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
 $filterCompany = (int) get('company_id', 0);
+$filterProject = (int) get('project_id', 0);
 $pageTitle = 'Expenses';
 $pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
 $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php?type=expenses')) . '">PDF</a><a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
@@ -18,6 +19,7 @@ $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS 
         WHERE t.txn_type = 'debit' AND cat.section IN ('expense','land_purchase')";
 $params = [];
 if ($filterCompany) { $sql .= ' AND t.company_id = ?'; $params[] = $filterCompany; }
+if ($filterProject) { $sql .= ' AND t.project_id = ?'; $params[] = $filterProject; }
 apply_date_range($sql, $params, $from, $to);
 $sql .= ' ORDER BY t.txn_date DESC';
 $stmt = $pdo->prepare($sql);
@@ -41,6 +43,25 @@ require __DIR__ . '/../includes/header.php';
         <option value="<?= (int)$co['id'] ?>" <?= $filterCompany === (int)$co['id'] ? 'selected' : '' ?>><?= e($co['name']) ?></option>
       <?php endforeach; ?>
     </select>
+  </div>
+  <div class="field">
+    <label>Project</label>
+    <select name="project_id" onchange="this.form.submit()">
+      <option value="">All</option>
+      <?= project_options($pdo, $filterCompany ?: null, $filterProject ?: null) ?>
+    </select>
+  </div>
+  <div class="field">
+    <label>From</label>
+    <input type="date" name="from" value="<?= e($from) ?>">
+  </div>
+  <div class="field">
+    <label>To</label>
+    <input type="date" name="to" value="<?= e($to) ?>">
+  </div>
+  <div class="field" style="flex:0">
+    <label>&nbsp;</label>
+    <button class="btn btn-outline" type="submit">Filter</button>
   </div>
 </form>
 <div class="card">
