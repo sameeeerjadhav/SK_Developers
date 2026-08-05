@@ -70,7 +70,7 @@ if ($action === 'add' || $action === 'edit') {
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/projects.php')) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
-    <div class="card" style="max-width:780px">
+    <div class="card">
       <form method="post" class="form-grid">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
