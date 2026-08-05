@@ -367,6 +367,9 @@ function ensure_v2_schema(PDO $pdo): void
     if (!in_array('interest_amount', $txnCols, true)) {
         $pdo->exec('ALTER TABLE transactions ADD COLUMN interest_amount DECIMAL(14,2) NULL AFTER investor_id');
     }
+    if (!in_array('payee_name', $txnCols, true)) {
+        $pdo->exec('ALTER TABLE transactions ADD COLUMN payee_name VARCHAR(160) NULL AFTER reference_no');
+    }
 
     // ---- Partner Capital / Advance categories (credit + debit mirror) ----
     foreach ([

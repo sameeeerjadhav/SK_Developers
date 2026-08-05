@@ -186,6 +186,7 @@ CREATE TABLE transactions (
   amount DECIMAL(14,2) NOT NULL,
   txn_date DATE NOT NULL,
   reference_no VARCHAR(80) NULL,
+  payee_name VARCHAR(160) NULL,
   description TEXT NULL,
   created_by INT UNSIGNED NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

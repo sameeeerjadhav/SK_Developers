@@ -18,9 +18,9 @@ function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectI
     if ($from !== '') { $where .= ' AND t.txn_date >= ?'; $params[] = $from; }
     if ($to !== '') { $where .= ' AND t.txn_date <= ?'; $params[] = $to; }
     if ($q !== '') {
-        $where .= ' AND (t.description LIKE ? OR t.reference_no LIKE ? OR cat.name LIKE ? OR c.name LIKE ? OR p.name LIKE ?)';
+        $where .= ' AND (t.description LIKE ? OR t.reference_no LIKE ? OR t.payee_name LIKE ? OR cat.name LIKE ? OR c.name LIKE ? OR p.name LIKE ?)';
         $like = '%' . $q . '%';
-        array_push($params, $like, $like, $like, $like, $like);
+        array_push($params, $like, $like, $like, $like, $like, $like);
     }
 
     $countStmt = $pdo->prepare(
@@ -98,7 +98,7 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
                   </td>
                   <td>
                     <?= e($row['category_name']) ?>
-                    <div class="muted" style="font-size:0.72rem"><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?></div>
+                    <div class="muted" style="font-size:0.72rem"><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?><?= $row['payee_name'] ? ' · ' . e($row['payee_name']) : '' ?></div>
                   </td>
                   <td class="num <?= $isCredit ? 'text-success' : 'text-danger' ?>">
                     <?= $isCredit ? '+' : '−' ?><?= money($row['amount']) ?>
@@ -196,6 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $amount = (float) post('amount', 0);
         $txnDate = post('txn_date', date('Y-m-d'));
         $reference = post('reference_no', '');
+        $payeeName = post('payee_name', '');
         $description = post('description', '');
         $editId = (int) post('id', 0);
 
@@ -227,14 +228,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $beforeStmt = $pdo->prepare('SELECT * FROM transactions WHERE id = ?');
             $beforeStmt->execute([$editId]);
             $before = $beforeStmt->fetch() ?: null;
-            $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, partner_id=?, txn_type=?, amount=?, txn_date=?, reference_no=?, description=? WHERE id=?');
-            $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $partnerId, $txnType, $amount, $txnDate, $reference, $description, $editId]);
+            $stmt = $pdo->prepare('UPDATE transactions SET company_id=?, project_id=?, bank_account_id=?, category_id=?, partner_id=?, txn_type=?, amount=?, txn_date=?, reference_no=?, payee_name=?, description=? WHERE id=?');
+            $stmt->execute([$companyId, $projectId, $bankAccountId, $categoryId, $partnerId, $txnType, $amount, $txnDate, $reference, $payeeName, $description, $editId]);
             audit_log($pdo, 'update', 'transaction', $editId, 'Updated txn #' . $editId . ' to ' . money($amount), $before, [
                 'amount' => $amount, 'txn_date' => $txnDate, 'category_id' => $categoryId, 'description' => $description,
             ]);
             flash('success', 'Transaction updated.');
         } else {
-            $txnId = create_transaction($pdo, $companyId, $categoryId, $txnType, $amount, $txnDate, $projectId, $bankAccountId, $partnerId, $reference, $description, $userId ? (int) $userId : null);
+            $txnId = create_transaction($pdo, $companyId, $categoryId, $txnType, $amount, $txnDate, $projectId, $bankAccountId, $partnerId, $reference, $description, $userId ? (int) $userId : null, null, null, $payeeName ?: null);
             audit_log($pdo, 'create', 'transaction', $txnId, 'Created ' . $txnType . ' ' . money($amount));
             flash('success', 'Transaction added.');
         }
@@ -394,6 +395,10 @@ if ($action === 'add' || $action === 'edit') {
           <select name="partner_id" id="partner_id">
             <?= partner_options($pdo, $preCompany ?: null, (int) ($txn['partner_id'] ?? 0)) ?>
           </select>
+        </div>
+        <div class="full">
+          <label>Name (who is being paid / who this is from)</label>
+          <input type="text" name="payee_name" value="<?= e($txn['payee_name'] ?? '') ?>">
         </div>
         <div class="full">
           <label>Description</label>

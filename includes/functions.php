@@ -395,12 +395,13 @@ function create_transaction(
     ?string $description = null,
     ?int $createdBy = null,
     ?int $investorId = null,
-    ?float $interestAmount = null
+    ?float $interestAmount = null,
+    ?string $payeeName = null
 ): int {
     $stmt = $pdo->prepare(
         'INSERT INTO transactions
-        (company_id, project_id, bank_account_id, category_id, partner_id, investor_id, interest_amount, txn_type, amount, txn_date, reference_no, description, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+        (company_id, project_id, bank_account_id, category_id, partner_id, investor_id, interest_amount, txn_type, amount, txn_date, reference_no, payee_name, description, created_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     $stmt->execute([
         $companyId,
@@ -414,6 +415,7 @@ function create_transaction(
         $amount,
         $txnDate,
         $reference,
+        $payeeName,
         $description,
         $createdBy,
     ]);
