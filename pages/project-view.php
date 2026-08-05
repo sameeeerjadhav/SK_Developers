@@ -25,7 +25,7 @@ $expenseTotal = array_sum(array_map(fn($r) => (float)$r['total'], $expenses));
 $profit = $creditTotal - $landTotal - $expenseTotal;
 
 $txns = $pdo->prepare(
-    'SELECT t.*, cat.name AS category_name, cat.section
+    'SELECT t.*, cat.name AS category_name, cat.slug AS category_slug, cat.section
      FROM transactions t JOIN categories cat ON cat.id = t.category_id
      WHERE t.project_id = ? ORDER BY t.txn_date DESC, t.id DESC LIMIT 20'
 );
@@ -135,16 +135,31 @@ function render_ledger_rows(array $rows, string $idPrefix): void
             <th>Category</th>
             <th>Type</th>
             <th class="num">Amount</th>
+            <th class="actions">Actions</th>
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($recent as $row): ?>
+          <?php foreach ($recent as $row):
+            $mgmtPage = null;
+            if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
+                $mgmtPage = ['bookings.php', 'Bookings'];
+            } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
+                $mgmtPage = ['investments.php', 'Investments'];
+            }
+          ?>
             <tr>
               <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?></td>
               <td><?= e($row['category_name']) ?></td>
               <td><?= txn_type_chip($row['txn_type']) ?></td>
               <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>"><?= money($row['amount']) ?></td>
+              <td class="actions">
+                <?php if ($mgmtPage): ?>
+                  <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/' . $mgmtPage[0])) ?>">Manage in <?= e($mgmtPage[1]) ?></a>
+                <?php else: ?>
+                  <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
+                <?php endif; ?>
+              </td>
             </tr>
           <?php endforeach; ?>
         </tbody>
