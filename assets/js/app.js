@@ -190,7 +190,7 @@
     var next = base - received + returned;
     var preview = form.querySelector('.remaining-preview');
     if (!preview) return;
-    preview.textContent = '₹' + next.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    preview.textContent = '₹' + next.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     preview.classList.toggle('text-danger', next > 0);
     preview.classList.toggle('text-success', next <= 0);
   });
@@ -206,7 +206,7 @@
     var principal = Math.max(0, amount - interest);
     var preview = form.querySelector('.repay-principal-preview');
     if (!preview) return;
-    preview.value = '₹' + principal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    preview.value = '₹' + principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   });
 
   // Bulk-select export toolbars (Investments, Loan Repayments, etc.)

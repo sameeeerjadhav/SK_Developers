@@ -126,18 +126,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <td><?= e($r['company_name']) ?></td>
                     <td><?= e($propertyLabel($r)) ?></td>
                     <td><?= $r['payment_type'] === 'received' ? 'Received' : 'Returned' ?></td>
-                    <td class="num"><?= number_format((float) $r['amount'], 2) ?></td>
+                    <td class="num"><?= indian_number_format((float) $r['amount'], 2) ?></td>
                   </tr>
                 <?php endforeach; ?>
               </tbody>
               <tfoot>
                 <tr>
                   <td colspan="5">TOTAL RECEIVED</td>
-                  <td class="num" colspan="2"><?= number_format($exportReceived, 2) ?></td>
+                  <td class="num" colspan="2"><?= indian_number_format((float) $exportReceived, 2) ?></td>
                 </tr>
                 <tr>
                   <td colspan="5">TOTAL RETURNED</td>
-                  <td class="num" colspan="2"><?= number_format($exportReturned, 2) ?></td>
+                  <td class="num" colspan="2"><?= indian_number_format((float) $exportReturned, 2) ?></td>
                 </tr>
               </tfoot>
             </table>
@@ -572,7 +572,7 @@ if ($action === 'add' || $action === 'edit') {
         var totalPreview = document.getElementById('total_amount_preview');
 
         function money(n) {
-          return '₹' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
         function fillCustomerFields() {

@@ -44,9 +44,52 @@ function e(?string $value): string
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+/**
+ * Format number using Indian digit grouping (lakhs/crores).
+ * Example: 1000000 => 10,00,000
+ */
+function indian_number_format(float $number, int $decimals = 2): string
+{
+    $negative = $number < 0;
+    $abs = abs($number);
+
+    // Keep fixed decimals without any thousands separators.
+    $fixed = sprintf('%.' . $decimals . 'f', $abs);
+    $parts = explode('.', $fixed, 2);
+    $intPart = $parts[0];
+    $decPart = $parts[1] ?? '';
+
+    $len = strlen($intPart);
+    if ($len <= 3) {
+        $grouped = $intPart;
+    } else {
+        $last3 = substr($intPart, -3);
+        $rest = substr($intPart, 0, -3);
+        $restLen = strlen($rest);
+        $firstGroupLen = $restLen % 2; // 0 or 1
+
+        $groups = [];
+        if ($firstGroupLen > 0) {
+            $groups[] = substr($rest, 0, $firstGroupLen);
+        }
+        for ($i = $firstGroupLen; $i < $restLen; $i += 2) {
+            $groups[] = substr($rest, $i, 2);
+        }
+
+        $grouped = implode(',', $groups) . ',' . $last3;
+    }
+
+    $result = $grouped;
+    if ($decimals > 0) {
+        $result .= '.' . $decPart;
+    }
+
+    return ($negative ? '-' : '') . $result;
+}
+
 function money($amount): string
 {
-    return '₹' . number_format((float) $amount, 2);
+    return '₹' . indian_number_format((float) $amount, 2);
 }
 
 function flash(string $type, string $message): void

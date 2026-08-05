@@ -288,18 +288,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <td><?= e($r['company_name']) ?></td>
                     <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
                     <td><?= e($r['borrower_name'] ?: '—') ?></td>
-                    <td class="num"><?= number_format((float) $r['amount'], 2) ?></td>
-                    <td class="num"><?= number_format((float) $r['principal_amount'], 2) ?></td>
-                    <td class="num"><?= number_format((float) $r['interest_amount'], 2) ?></td>
+                    <td class="num"><?= indian_number_format((float) $r['amount'], 2) ?></td>
+                    <td class="num"><?= indian_number_format((float) $r['principal_amount'], 2) ?></td>
+                    <td class="num"><?= indian_number_format((float) $r['interest_amount'], 2) ?></td>
                   </tr>
                 <?php endforeach; ?>
               </tbody>
               <tfoot>
                 <tr>
                   <td colspan="6">TOTAL</td>
-                  <td class="num"><?= number_format($exportTotal, 2) ?></td>
-                  <td class="num"><?= number_format($exportPrincipal, 2) ?></td>
-                  <td class="num"><?= number_format($exportInterest, 2) ?></td>
+                  <td class="num"><?= indian_number_format((float) $exportTotal, 2) ?></td>
+                  <td class="num"><?= indian_number_format((float) $exportPrincipal, 2) ?></td>
+                  <td class="num"><?= indian_number_format((float) $exportInterest, 2) ?></td>
                 </tr>
               </tfoot>
             </table>

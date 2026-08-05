@@ -292,16 +292,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
                 <td><?= e($r['project_name'] ?? '—') ?></td>
                 <td><?= e($r['category_name']) ?></td>
                 <td><?= e($r['description'] ?: '—') ?></td>
-                <td class="num"><?= $r['txn_type'] === 'credit' ? number_format((float) $r['amount'], 2) : '—' ?></td>
-                <td class="num"><?= $r['txn_type'] === 'debit' ? number_format((float) $r['amount'], 2) : '—' ?></td>
+                <td class="num"><?= $r['txn_type'] === 'credit' ? indian_number_format((float) $r['amount'], 2) : '—' ?></td>
+                <td class="num"><?= $r['txn_type'] === 'debit' ? indian_number_format((float) $r['amount'], 2) : '—' ?></td>
               </tr>
             <?php endforeach; ?>
           </tbody>
           <tfoot>
             <tr>
               <td colspan="8">TOTAL</td>
-              <td class="num"><?= number_format($exportIn, 2) ?></td>
-              <td class="num"><?= number_format($exportOut, 2) ?></td>
+              <td class="num"><?= indian_number_format((float) $exportIn, 2) ?></td>
+              <td class="num"><?= indian_number_format((float) $exportOut, 2) ?></td>
             </tr>
             <tr>
               <td colspan="8">NET INVESTMENT</td>
