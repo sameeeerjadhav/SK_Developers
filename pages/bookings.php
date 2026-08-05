@@ -210,24 +210,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             audit_log($pdo, 'create', 'booking', $newId, 'Created booking for customer #' . $customerId);
 
             $initialAmount = (float) post('initial_amount_received', 0);
-            if ($initialAmount > 0) {
+            $initialReturned = (float) post('initial_amount_returned', 0);
+            if ($initialAmount > 0 || $initialReturned > 0) {
                 $initialDate = post('initial_payment_date') ?: date('Y-m-d');
                 $initialBankAccountId = post('initial_bank_account_id') !== '' ? (int) post('initial_bank_account_id') : null;
                 $propertyLabel = $propertyType === 'plot'
                     ? ('Plot ' . ($plotNo ?: '—'))
                     : ucwords(str_replace('_', ' ', $propertyType));
-                $initCatId = category_id_by_slug($pdo, 'credit', 'booking');
-                $initDescription = 'Booking payment — ' . $customerName . ' — ' . $propertyLabel;
-                $initTxnId = create_transaction(
-                    $pdo, $companyId, (int) $initCatId, 'credit', $initialAmount, $initialDate,
-                    $projectId, $initialBankAccountId, null, null, $initDescription, $userId ? (int) $userId : null
-                );
-                $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)')
-                    ->execute([$newId, $initTxnId, 'received', $initialAmount, $initialDate, 'Initial payment at booking creation', $userId]);
-                audit_log($pdo, 'create', 'booking_payment', $newId, 'Recorded initial payment ' . money($initialAmount) . ' for booking #' . $newId);
+
+                if ($initialAmount > 0) {
+                    $initCatId = category_id_by_slug($pdo, 'credit', 'booking');
+                    $initDescription = 'Booking payment — ' . $customerName . ' — ' . $propertyLabel;
+                    $initTxnId = create_transaction(
+                        $pdo, $companyId, (int) $initCatId, 'credit', $initialAmount, $initialDate,
+                        $projectId, $initialBankAccountId, null, null, $initDescription, $userId ? (int) $userId : null
+                    );
+                    $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)')
+                        ->execute([$newId, $initTxnId, 'received', $initialAmount, $initialDate, 'Initial payment at booking creation', $userId]);
+                    audit_log($pdo, 'create', 'booking_payment', $newId, 'Recorded initial payment ' . money($initialAmount) . ' for booking #' . $newId);
+                }
+
+                if ($initialReturned > 0) {
+                    $refundCatId = category_id_by_slug($pdo, 'general', 'booking_refund');
+                    $refundDescription = 'Booking refund — ' . $customerName . ' — ' . $propertyLabel;
+                    $refundTxnId = create_transaction(
+                        $pdo, $companyId, (int) $refundCatId, 'debit', $initialReturned, $initialDate,
+                        $projectId, $initialBankAccountId, null, null, $refundDescription, $userId ? (int) $userId : null
+                    );
+                    $pdo->prepare('INSERT INTO booking_payments (booking_id, transaction_id, payment_type, amount, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?)')
+                        ->execute([$newId, $refundTxnId, 'returned', $initialReturned, $initialDate, 'Initial return at booking creation', $userId]);
+                    audit_log($pdo, 'create', 'booking_payment', $newId, 'Recorded initial return ' . money($initialReturned) . ' for booking #' . $newId);
+                }
             }
 
-            flash('success', 'Booking created.' . ($initialAmount > 0 ? ' Initial payment recorded.' : ' Record payments from the list below.'));
+            flash('success', 'Booking created.' . (($initialAmount > 0 || $initialReturned > 0) ? ' Initial payment recorded.' : ' Record payments from the list below.'));
         }
         redirect('pages/bookings.php');
     }
@@ -495,11 +511,15 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <?php if (!$booking): ?>
         <div class="full">
-          <label>Initial payment received (optional)</label>
+          <label>Initial payment (optional)</label>
         </div>
         <div>
           <label>Amount received (₹)</label>
           <input type="number" step="0.01" min="0" name="initial_amount_received" value="0">
+        </div>
+        <div>
+          <label>Amount returned (₹)</label>
+          <input type="number" step="0.01" min="0" name="initial_amount_returned" value="0">
         </div>
         <div>
           <label>Date</label>
