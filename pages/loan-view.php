@@ -35,6 +35,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('error', 'Enter a positive repayment amount.');
             redirect('pages/loan-view.php?id=' . $id);
         }
+        $bc = $pdo->prepare('SELECT COUNT(*) FROM loan_borrowers WHERE loan_id = ?');
+        $bc->execute([$id]);
+        if ((int) $bc->fetchColumn() > 0 && !$borrowerId) {
+            flash('error', 'Select which borrower paid this amount.');
+            redirect('pages/loan-view.php?id=' . $id);
+        }
         if ($interestAmount > $amount) {
             $interestAmount = $amount;
         }
@@ -155,13 +161,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $repayStmt = $pdo->prepare('SELECT lr.*, ba.account_name, ba.bank_name, lb.name AS borrower_name FROM loan_repayments lr LEFT JOIN bank_accounts ba ON ba.id = lr.bank_account_id LEFT JOIN loan_borrowers lb ON lb.id = lr.borrower_id WHERE lr.loan_id = ? ORDER BY lr.payment_date DESC, lr.id DESC');
 $repayStmt->execute([$id]);
 $repayments = $repayStmt->fetchAll();
-$totalRepaid = array_sum(array_map(fn($r) => (float) $r['amount'], $repayments));
-$principalRepaid = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $repayments));
-$interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $repayments));
+
+// Keep borrower outstanding in sync with repayments (also re-links orphaned rows by name)
+refresh_loan_outstanding($pdo, $id);
+// Re-read loan + repayments after refresh (borrower_id may have been restored)
+$stmt->execute([$id]);
+$loan = $stmt->fetch() ?: $loan;
+$repayStmt->execute([$id]);
+$repayments = $repayStmt->fetchAll();
 
 $borrowerStmt = $pdo->prepare('SELECT * FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
 $borrowerStmt->execute([$id]);
 $borrowers = $borrowerStmt->fetchAll();
+
+// Per-borrower repayment totals for the cards
+$paidByBorrower = [];
+foreach ($repayments as $r) {
+    $bid = (int) ($r['borrower_id'] ?? 0);
+    if ($bid <= 0) {
+        continue;
+    }
+    if (!isset($paidByBorrower[$bid])) {
+        $paidByBorrower[$bid] = ['total' => 0.0, 'principal' => 0.0, 'interest' => 0.0, 'count' => 0];
+    }
+    $paidByBorrower[$bid]['total'] += (float) $r['amount'];
+    $paidByBorrower[$bid]['principal'] += (float) $r['principal_amount'];
+    $paidByBorrower[$bid]['interest'] += (float) $r['interest_amount'];
+    $paidByBorrower[$bid]['count']++;
+}
+
+$totalRepaid = array_sum(array_map(fn($r) => (float) $r['amount'], $repayments));
+$principalRepaid = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $repayments));
+$interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $repayments));
+
 $borrowersTotal = array_sum(array_map(fn($b) => (float) ($b['loan_amount'] ?? 0), $borrowers));
 $borrowersOutstandingTotal = array_sum(array_map(fn($b) => (float) ($b['outstanding_amount'] ?? 0), $borrowers));
 
@@ -196,7 +228,14 @@ require __DIR__ . '/../includes/header.php';
 <div class="card">
   <h2 class="card-title">Borrowers / guarantors</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem">
-    <?php foreach ($borrowers as $b): ?>
+    <?php foreach ($borrowers as $b):
+      $bid = (int) $b['id'];
+      $paid = $paidByBorrower[$bid] ?? ['total' => 0.0, 'principal' => 0.0, 'interest' => 0.0, 'count' => 0];
+      $loanAmt = $b['loan_amount'] !== null ? (float) $b['loan_amount'] : null;
+      $outstanding = $b['outstanding_amount'] !== null
+          ? (float) $b['outstanding_amount']
+          : ($loanAmt !== null ? max(0, $loanAmt - (float) $paid['principal']) : null);
+    ?>
       <div class="company-card" style="cursor:default">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.6rem;margin-bottom:0.75rem">
           <div>
@@ -206,12 +245,15 @@ require __DIR__ . '/../includes/header.php';
           </div>
           <div style="text-align:right">
             <div class="muted" style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.04em">Loan amount</div>
-            <div style="font-size:1.1rem;font-weight:800;color:var(--primary-dark,#0f766e)"><?= $b['loan_amount'] !== null ? money($b['loan_amount']) : '—' ?></div>
+            <div style="font-size:1.1rem;font-weight:800;color:var(--primary-dark,#0f766e)"><?= $loanAmt !== null ? money($loanAmt) : '—' ?></div>
           </div>
         </div>
         <table class="detail-table">
           <tbody>
-            <tr><td>Outstanding</td><td><?= $b['outstanding_amount'] !== null ? money($b['outstanding_amount']) : '—' ?></td></tr>
+            <tr><td>Outstanding</td><td class="<?= $outstanding !== null && $outstanding > 0 ? 'text-danger' : 'text-success' ?>"><strong><?= $outstanding !== null ? money($outstanding) : '—' ?></strong></td></tr>
+            <tr><td>Principal repaid</td><td class="text-success"><?= money($paid['principal']) ?></td></tr>
+            <tr><td>Interest repaid</td><td class="text-danger"><?= money($paid['interest']) ?></td></tr>
+            <tr><td>Total repaid</td><td><?= money($paid['total']) ?><?= $paid['count'] ? ' <span class="muted">(' . (int) $paid['count'] . ')</span>' : '' ?></td></tr>
             <tr><td>Interest + charges</td><td><?= $b['interest_charges'] !== null ? money($b['interest_charges']) : '—' ?></td></tr>
             <tr><td>Start date</td><td><?= $b['start_date'] ? e(format_date($b['start_date'])) : '—' ?></td></tr>
             <tr><td>End date</td><td><?= $b['end_date'] ? e(format_date($b['end_date'])) : '—' ?></td></tr>
@@ -260,8 +302,14 @@ require __DIR__ . '/../includes/header.php';
     </div>
     <?php if ($borrowers): ?>
     <div>
-      <label>Borrower</label>
-      <select name="borrower_id"><?= $borrowerOptions() ?></select>
+      <label>Paid by (borrower)</label>
+      <select name="borrower_id" required>
+        <option value="">Select borrower…</option>
+        <?php foreach ($borrowers as $bo): ?>
+          <option value="<?= (int) $bo['id'] ?>"><?= e($bo['name']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <p class="muted" style="font-size:0.75rem;margin:0.35rem 0 0">Select the borrower so this payment reduces their outstanding.</p>
     </div>
     <?php endif; ?>
     <div class="full">

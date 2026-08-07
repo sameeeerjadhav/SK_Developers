@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $borrowersData = [];
         foreach ($borrowerNames as $i => $bn) {
             $borrowersData[] = [
+                'id' => (int) ($_POST['borrower_id'][$i] ?? 0),
                 'name' => $bn,
                 'account_number' => $_POST['borrower_account_number'][$i] ?? '',
                 'loan_amount' => $_POST['borrower_loan_amount'][$i] ?? '',
@@ -138,6 +139,7 @@ if ($action === 'add' || $action === 'edit') {
           <div data-repeat-container="borrowers">
             <?php foreach ($borrowers as $b): ?>
             <div class="repeat-row borrower-block" style="border:1px solid var(--border-strong);border-radius:14px;padding:0.8rem;margin-bottom:0.7rem">
+              <input type="hidden" name="borrower_id[]" value="<?= (int) ($b['id'] ?? 0) ?>">
               <div style="display:flex;justify-content:flex-end;margin-bottom:0.4rem">
                 <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times; Remove person</button>
               </div>
@@ -190,6 +192,7 @@ if ($action === 'add' || $action === 'edit') {
           </datalist>
           <template id="borrowerRowTemplate">
             <div class="repeat-row borrower-block" style="border:1px solid var(--border-strong);border-radius:14px;padding:0.8rem;margin-bottom:0.7rem">
+              <input type="hidden" name="borrower_id[]" value="0">
               <div style="display:flex;justify-content:flex-end;margin-bottom:0.4rem">
                 <button type="button" class="btn btn-outline btn-sm" data-repeat-remove>&times; Remove person</button>
               </div>

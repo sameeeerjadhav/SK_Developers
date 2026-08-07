@@ -776,47 +776,189 @@ function refresh_loan_outstanding(PDO $pdo, int $loanId): void
     $status = $outstanding <= 0.01 ? 'closed' : 'active';
     $pdo->prepare('UPDATE bank_loans SET outstanding_amount = ?, status = ? WHERE id = ?')
         ->execute([$outstanding, $status, $loanId]);
+
+    refresh_borrower_outstandings($pdo, $loanId);
 }
 
 /**
- * Replaces a loan's borrower list. Pass an array of rows, each with keys:
- * name, account_number, loan_amount, outstanding_amount, interest_charges,
- * start_date, end_date, mortgage_noc_date, reconveyance_date.
- * Rows with a blank name are skipped.
+ * Recalculate each borrower's outstanding from their attributed principal repayments.
+ * outstanding = max(0, borrower.loan_amount − principal repaid for that borrower).
+ */
+function refresh_borrower_outstandings(PDO $pdo, int $loanId): void
+{
+    // Re-link orphaned repayments whose borrower_id was cleared (e.g. after borrower re-save)
+    // by matching the borrower name stored in the linked transaction description or notes.
+    try {
+        $orphans = $pdo->prepare(
+            'SELECT lr.id, lr.notes, t.description
+             FROM loan_repayments lr
+             LEFT JOIN transactions t ON t.id = lr.transaction_id
+             WHERE lr.loan_id = ? AND lr.borrower_id IS NULL'
+        );
+        $orphans->execute([$loanId]);
+        $borrowers = $pdo->prepare('SELECT id, name FROM loan_borrowers WHERE loan_id = ?');
+        $borrowers->execute([$loanId]);
+        $byName = [];
+        foreach ($borrowers->fetchAll() as $b) {
+            $byName[mb_strtolower(trim($b['name']))] = (int) $b['id'];
+        }
+        // Longest names first so "Vaishnavi Pankaj Lodha" wins over a shorter partial match
+        uksort($byName, fn($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+        $link = $pdo->prepare('UPDATE loan_repayments SET borrower_id = ? WHERE id = ? AND borrower_id IS NULL');
+        foreach ($orphans->fetchAll() as $row) {
+            $hay = mb_strtolower(($row['notes'] ?? '') . ' ' . ($row['description'] ?? ''));
+            foreach ($byName as $name => $bid) {
+                if ($name !== '' && mb_strpos($hay, $name) !== false) {
+                    $link->execute([$bid, (int) $row['id']]);
+                    break;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+    }
+
+    $paidStmt = $pdo->prepare(
+        'SELECT borrower_id,
+                COALESCE(SUM(principal_amount),0) AS principal_paid,
+                COALESCE(SUM(interest_amount),0) AS interest_paid,
+                COALESCE(SUM(amount),0) AS total_paid
+         FROM loan_repayments
+         WHERE loan_id = ? AND borrower_id IS NOT NULL
+         GROUP BY borrower_id'
+    );
+    $paidStmt->execute([$loanId]);
+    $paidByBorrower = [];
+    foreach ($paidStmt->fetchAll() as $row) {
+        $paidByBorrower[(int) $row['borrower_id']] = $row;
+    }
+
+    $bStmt = $pdo->prepare('SELECT id, loan_amount, outstanding_amount FROM loan_borrowers WHERE loan_id = ?');
+    $bStmt->execute([$loanId]);
+    $upd = $pdo->prepare('UPDATE loan_borrowers SET outstanding_amount = ? WHERE id = ?');
+    foreach ($bStmt->fetchAll() as $b) {
+        $bid = (int) $b['id'];
+        $principalPaid = (float) ($paidByBorrower[$bid]['principal_paid'] ?? 0);
+        $loanAmt = $b['loan_amount'] !== null ? (float) $b['loan_amount'] : null;
+        if ($loanAmt !== null) {
+            $outstanding = max(0, round($loanAmt - $principalPaid, 2));
+            $upd->execute([$outstanding, $bid]);
+        } elseif ($principalPaid > 0 && $b['outstanding_amount'] !== null) {
+            // No loan_amount set — reduce stored outstanding by principal paid (floor at 0)
+            $outstanding = max(0, round((float) $b['outstanding_amount'] - $principalPaid, 2));
+            $upd->execute([$outstanding, $bid]);
+        }
+    }
+}
+
+/**
+ * Upserts a loan's borrower list while preserving IDs (so repayment.borrower_id links stay valid).
+ * Matches existing rows by id when provided, otherwise by name.
+ * Rows with a blank name are skipped. Borrowers removed from the form are deleted
+ * only if they have no linked repayments (otherwise kept and cleared from form silently skipped).
  */
 function sync_loan_borrowers(PDO $pdo, int $loanId, array $borrowers): void
 {
-    $pdo->prepare('DELETE FROM loan_borrowers WHERE loan_id = ?')->execute([$loanId]);
-    $ins = $pdo->prepare(
-        'INSERT INTO loan_borrowers
-        (loan_id, name, account_number, loan_amount, outstanding_amount, interest_charges, start_date, end_date, mortgage_noc_date, reconveyance_date)
-        VALUES (?,?,?,?,?,?,?,?,?,?)'
-    );
+    $existingStmt = $pdo->prepare('SELECT * FROM loan_borrowers WHERE loan_id = ? ORDER BY id');
+    $existingStmt->execute([$loanId]);
+    $existing = $existingStmt->fetchAll();
+    $byId = [];
+    $byName = [];
+    foreach ($existing as $row) {
+        $byId[(int) $row['id']] = $row;
+        $key = mb_strtolower(trim($row['name']));
+        if ($key !== '' && !isset($byName[$key])) {
+            $byName[$key] = $row;
+        }
+    }
+
     $num = function ($v) {
         return $v !== '' && $v !== null ? (float) $v : null;
     };
     $date = function ($v) {
         return $v !== '' && $v !== null ? $v : null;
     };
+
+    $keepIds = [];
+    $upd = $pdo->prepare(
+        'UPDATE loan_borrowers SET name=?, account_number=?, loan_amount=?, outstanding_amount=?, interest_charges=?, start_date=?, end_date=?, mortgage_noc_date=?, reconveyance_date=? WHERE id=? AND loan_id=?'
+    );
+    $ins = $pdo->prepare(
+        'INSERT INTO loan_borrowers
+        (loan_id, name, account_number, loan_amount, outstanding_amount, interest_charges, start_date, end_date, mortgage_noc_date, reconveyance_date)
+        VALUES (?,?,?,?,?,?,?,?,?,?)'
+    );
+
     foreach ($borrowers as $b) {
         $name = trim((string) ($b['name'] ?? ''));
         if ($name === '') {
             continue;
         }
         $accountNumber = trim((string) ($b['account_number'] ?? ''));
-        $ins->execute([
-            $loanId,
-            $name,
-            $accountNumber !== '' ? $accountNumber : null,
-            $num($b['loan_amount'] ?? null),
-            $num($b['outstanding_amount'] ?? null),
-            $num($b['interest_charges'] ?? null),
-            $date($b['start_date'] ?? null),
-            $date($b['end_date'] ?? null),
-            $date($b['mortgage_noc_date'] ?? null),
-            $date($b['reconveyance_date'] ?? null),
-        ]);
+        $loanAmount = $num($b['loan_amount'] ?? null);
+        $outstanding = $num($b['outstanding_amount'] ?? null);
+        $interest = $num($b['interest_charges'] ?? null);
+        $start = $date($b['start_date'] ?? null);
+        $end = $date($b['end_date'] ?? null);
+        $noc = $date($b['mortgage_noc_date'] ?? null);
+        $recon = $date($b['reconveyance_date'] ?? null);
+
+        $matchId = isset($b['id']) ? (int) $b['id'] : 0;
+        $existingRow = null;
+        if ($matchId && isset($byId[$matchId])) {
+            $existingRow = $byId[$matchId];
+        } else {
+            $key = mb_strtolower($name);
+            if (isset($byName[$key])) {
+                $existingRow = $byName[$key];
+            }
+        }
+
+        if ($existingRow) {
+            $eid = (int) $existingRow['id'];
+            // If outstanding left blank on edit, keep previous until refresh recalculates
+            if ($outstanding === null) {
+                $outstanding = $existingRow['outstanding_amount'] !== null ? (float) $existingRow['outstanding_amount'] : null;
+            }
+            $upd->execute([
+                $name,
+                $accountNumber !== '' ? $accountNumber : null,
+                $loanAmount,
+                $outstanding,
+                $interest,
+                $start,
+                $end,
+                $noc,
+                $recon,
+                $eid,
+                $loanId,
+            ]);
+            $keepIds[] = $eid;
+            unset($byId[$eid]);
+            unset($byName[mb_strtolower(trim($existingRow['name']))]);
+        } else {
+            $ins->execute([
+                $loanId,
+                $name,
+                $accountNumber !== '' ? $accountNumber : null,
+                $loanAmount,
+                $outstanding,
+                $interest,
+                $start,
+                $end,
+                $noc,
+                $recon,
+            ]);
+            $keepIds[] = (int) $pdo->lastInsertId();
+        }
     }
+
+    // Delete borrowers removed from the form (FK on repayments sets borrower_id NULL)
+    foreach ($byId as $eid => $row) {
+        $pdo->prepare('DELETE FROM loan_borrowers WHERE id = ? AND loan_id = ?')->execute([$eid, $loanId]);
+    }
+
+    refresh_borrower_outstandings($pdo, $loanId);
 }
 
 function account_balance(PDO $pdo, int $accountId): float
