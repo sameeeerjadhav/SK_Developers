@@ -20,14 +20,17 @@ if (!$loan) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if ($viewOnly) {
+    verify_csrf();
+    $exportAction = post('export_action', '');
+    $isExport = in_array($exportAction, ['csv', 'excel', 'pdf'], true);
+    $postAction = post('action', '');
+
+    if (!$isExport && $viewOnly) {
         flash('error', 'Open Repayments to record or edit payments.');
         redirect('pages/loan-view.php?id=' . $id . '&mode=view');
     }
-    verify_csrf();
-    $postAction = post('action', '');
 
-    if ($postAction === 'record_repayment') {
+    if (!$isExport && $postAction === 'record_repayment') {
         $amount = (float) post('amount', 0);
         $interestAmount = (float) post('interest_amount', 0);
         $paymentDate = post('payment_date', date('Y-m-d'));
@@ -93,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
     }
 
-    if ($postAction === 'edit_repayment') {
+    if (!$isExport && $postAction === 'edit_repayment') {
         $repayId = (int) post('repayment_id', 0);
         $amount = (float) post('amount', 0);
         $interestAmount = (float) post('interest_amount', 0);
@@ -143,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
     }
 
-    if ($postAction === 'delete_repayment') {
+    if (!$isExport && $postAction === 'delete_repayment') {
         if (!can_delete()) {
             flash('error', 'Only admins can delete repayments.');
             redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
@@ -202,6 +205,373 @@ $interestRepaid = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $
 $borrowersTotal = array_sum(array_map(fn($b) => (float) ($b['loan_amount'] ?? 0), $borrowers));
 $borrowersOutstandingTotal = array_sum(array_map(fn($b) => (float) ($b['outstanding_amount'] ?? 0), $borrowers));
 
+// Build borrower report rows with the same outstanding math shown on screen
+$borrowerReportRows = [];
+foreach ($borrowers as $b) {
+    $bid = (int) $b['id'];
+    $paid = $paidByBorrower[$bid] ?? ['total' => 0.0, 'principal' => 0.0, 'interest' => 0.0, 'count' => 0];
+    $loanAmt = $b['loan_amount'] !== null ? (float) $b['loan_amount'] : null;
+    $outstanding = $b['outstanding_amount'] !== null
+        ? (float) $b['outstanding_amount']
+        : ($loanAmt !== null ? max(0, $loanAmt - (float) $paid['principal']) : null);
+    $borrowerReportRows[] = [
+        'name' => (string) ($b['name'] ?? ''),
+        'account_number' => (string) ($b['account_number'] ?? ''),
+        'loan_amount' => $loanAmt,
+        'outstanding' => $outstanding,
+        'principal_repaid' => (float) $paid['principal'],
+        'interest_repaid' => (float) $paid['interest'],
+        'total_repaid' => (float) $paid['total'],
+        'repay_count' => (int) $paid['count'],
+        'interest_charges' => $b['interest_charges'] !== null ? (float) $b['interest_charges'] : null,
+        'start_date' => $b['start_date'] ?? null,
+        'end_date' => $b['end_date'] ?? null,
+        'mortgage_noc_date' => $b['mortgage_noc_date'] ?? null,
+        'reconveyance_date' => $b['reconveyance_date'] ?? null,
+    ];
+}
+
+$exportAction = ($_SERVER['REQUEST_METHOD'] === 'POST') ? post('export_action', '') : '';
+if (in_array($exportAction, ['csv', 'excel', 'pdf'], true)) {
+    $modeQs = $viewOnly ? 'view' : 'repay';
+    $safeLender = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $loan['lender_name']) ?: 'loan';
+    $safeLender = trim($safeLender, '_');
+    $stamp = date('Ymd_His');
+    $plain = static fn($n): string => number_format((float) $n, 2, '.', '');
+    $plainOrBlank = static fn($n): string => $n === null ? '' : number_format((float) $n, 2, '.', '');
+
+    if ($exportAction === 'csv') {
+        $filename = 'loan_' . $safeLender . '_' . $id . '_' . $stamp . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+
+        fputcsv($out, ['Loan Report']);
+        fputcsv($out, ['Lender', $loan['lender_name']]);
+        fputcsv($out, ['Company', $loan['company_name']]);
+        fputcsv($out, ['Project', $loan['project_name'] ?? '']);
+        fputcsv($out, ['Status', $loan['status']]);
+        fputcsv($out, ['Generated', date('Y-m-d H:i:s')]);
+        fputcsv($out, []);
+
+        fputcsv($out, ['Summary']);
+        fputcsv($out, ['Metric', 'Amount (INR)']);
+        fputcsv($out, ['Total loan amount', $plain($loan['loan_amount'])]);
+        fputcsv($out, ['Total outstanding', $plain($loan['outstanding_amount'])]);
+        fputcsv($out, ['Interest + charges', $plainOrBlank($loan['interest_charges'])]);
+        fputcsv($out, ['Total repaid', $plain($totalRepaid)]);
+        fputcsv($out, ['Principal repaid', $plain($principalRepaid)]);
+        fputcsv($out, ['Interest repaid', $plain($interestRepaid)]);
+        fputcsv($out, ['Repayment entries', (string) count($repayments)]);
+        fputcsv($out, []);
+
+        fputcsv($out, ['Borrowers / guarantors']);
+        fputcsv($out, [
+            'Name', 'A/C', 'Loan amount', 'Outstanding', 'Principal repaid', 'Interest repaid',
+            'Total repaid', 'Entries', 'Interest + charges', 'Start date', 'End date', 'Mortgage NOC', 'Reconveyance',
+        ]);
+        foreach ($borrowerReportRows as $br) {
+            fputcsv($out, [
+                $br['name'],
+                $br['account_number'],
+                $plainOrBlank($br['loan_amount']),
+                $plainOrBlank($br['outstanding']),
+                $plain($br['principal_repaid']),
+                $plain($br['interest_repaid']),
+                $plain($br['total_repaid']),
+                (string) $br['repay_count'],
+                $plainOrBlank($br['interest_charges']),
+                $br['start_date'] ?? '',
+                $br['end_date'] ?? '',
+                $br['mortgage_noc_date'] ?? '',
+                $br['reconveyance_date'] ?? '',
+            ]);
+        }
+        if ($borrowerReportRows) {
+            fputcsv($out, [
+                'TOTAL', '', $plain($borrowersTotal), $plain($borrowersOutstandingTotal),
+                '', '', '', '', '', '', '', '', '',
+            ]);
+        }
+        fputcsv($out, []);
+
+        fputcsv($out, ['Repayment history']);
+        fputcsv($out, ['Date', 'Amount', 'Principal', 'Interest', 'Bank account', 'Borrower', 'Notes']);
+        foreach ($repayments as $r) {
+            fputcsv($out, [
+                $r['payment_date'],
+                $plain($r['amount']),
+                $plain($r['principal_amount']),
+                $plain($r['interest_amount']),
+                $r['account_name'] ? ($r['account_name'] . ' - ' . $r['bank_name']) : '',
+                $r['borrower_name'] ?? '',
+                $r['notes'] ?? '',
+            ]);
+        }
+        fputcsv($out, [
+            'TOTAL',
+            $plain($totalRepaid),
+            $plain($principalRepaid),
+            $plain($interestRepaid),
+            '', '', '',
+        ]);
+        fclose($out);
+        exit;
+    }
+
+    if ($exportAction === 'excel') {
+        $filename = 'loan_' . $safeLender . '_' . $id . '_' . $stamp . '.xls';
+        header('Content-Type: application/vnd.ms-excel; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $xmlEsc = static fn($v): string => htmlspecialchars((string) $v, ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $rowString = static function (array $cells) use ($xmlEsc): string {
+            $html = '<Row>';
+            foreach ($cells as $cell) {
+                $html .= '<Cell><Data ss:Type="String">' . $xmlEsc($cell) . '</Data></Cell>';
+            }
+            return $html . '</Row>';
+        };
+        $rowMixed = static function (array $cells) use ($xmlEsc): string {
+            $html = '<Row>';
+            foreach ($cells as $cell) {
+                if (is_array($cell) && ($cell['t'] ?? '') === 'n') {
+                    $html .= '<Cell><Data ss:Type="Number">' . $xmlEsc($cell['v']) . '</Data></Cell>';
+                } else {
+                    $html .= '<Cell><Data ss:Type="String">' . $xmlEsc(is_array($cell) ? ($cell['v'] ?? '') : $cell) . '</Data></Cell>';
+                }
+            }
+            return $html . '</Row>';
+        };
+        $numCell = static fn($n): array => ['t' => 'n', 'v' => number_format((float) $n, 2, '.', '')];
+        $numOrBlank = static function ($n) use ($numCell) {
+            return $n === null ? '' : $numCell($n);
+        };
+
+        echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        echo '<?mso-application progid="Excel.Sheet"?>' . "\n";
+        echo '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' . "\n";
+        echo '<Worksheet ss:Name="Loan Report"><Table>' . "\n";
+
+        echo $rowString(['Loan Report']);
+        echo $rowString(['Lender', $loan['lender_name']]);
+        echo $rowString(['Company', $loan['company_name']]);
+        echo $rowString(['Project', $loan['project_name'] ?? '']);
+        echo $rowString(['Status', $loan['status']]);
+        echo $rowString(['Generated', date('Y-m-d H:i:s')]);
+        echo $rowString(['']);
+        echo $rowString(['Summary']);
+        echo $rowString(['Metric', 'Amount (INR)']);
+        echo $rowMixed(['Total loan amount', $numCell($loan['loan_amount'])]);
+        echo $rowMixed(['Total outstanding', $numCell($loan['outstanding_amount'])]);
+        echo $rowMixed(['Interest + charges', $numOrBlank($loan['interest_charges'])]);
+        echo $rowMixed(['Total repaid', $numCell($totalRepaid)]);
+        echo $rowMixed(['Principal repaid', $numCell($principalRepaid)]);
+        echo $rowMixed(['Interest repaid', $numCell($interestRepaid)]);
+        echo $rowMixed(['Repayment entries', ['t' => 'n', 'v' => (string) count($repayments)]]);
+        echo $rowString(['']);
+
+        echo $rowString(['Borrowers / guarantors']);
+        echo $rowString([
+            'Name', 'A/C', 'Loan amount', 'Outstanding', 'Principal repaid', 'Interest repaid',
+            'Total repaid', 'Entries', 'Interest + charges', 'Start date', 'End date', 'Mortgage NOC', 'Reconveyance',
+        ]);
+        foreach ($borrowerReportRows as $br) {
+            echo $rowMixed([
+                $br['name'],
+                $br['account_number'],
+                $numOrBlank($br['loan_amount']),
+                $numOrBlank($br['outstanding']),
+                $numCell($br['principal_repaid']),
+                $numCell($br['interest_repaid']),
+                $numCell($br['total_repaid']),
+                ['t' => 'n', 'v' => (string) $br['repay_count']],
+                $numOrBlank($br['interest_charges']),
+                $br['start_date'] ?? '',
+                $br['end_date'] ?? '',
+                $br['mortgage_noc_date'] ?? '',
+                $br['reconveyance_date'] ?? '',
+            ]);
+        }
+        if ($borrowerReportRows) {
+            echo $rowMixed([
+                'TOTAL', '', $numCell($borrowersTotal), $numCell($borrowersOutstandingTotal),
+                '', '', '', '', '', '', '', '', '',
+            ]);
+        }
+        echo $rowString(['']);
+
+        echo $rowString(['Repayment history']);
+        echo $rowString(['Date', 'Amount', 'Principal', 'Interest', 'Bank account', 'Borrower', 'Notes']);
+        foreach ($repayments as $r) {
+            echo $rowMixed([
+                $r['payment_date'],
+                $numCell($r['amount']),
+                $numCell($r['principal_amount']),
+                $numCell($r['interest_amount']),
+                $r['account_name'] ? ($r['account_name'] . ' - ' . $r['bank_name']) : '',
+                $r['borrower_name'] ?? '',
+                $r['notes'] ?? '',
+            ]);
+        }
+        echo $rowMixed([
+            'TOTAL',
+            $numCell($totalRepaid),
+            $numCell($principalRepaid),
+            $numCell($interestRepaid),
+            '', '', '',
+        ]);
+
+        echo '</Table></Worksheet></Workbook>';
+        exit;
+    }
+
+    // PDF: print-ready report (same pattern as loan repayments / reports)
+    $pageTitle = 'Loan report — ' . $loan['lender_name'];
+    $pageSub = 'Print or Save as PDF.';
+    $pageActions =
+        '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>' .
+        '<a class="btn btn-outline no-print" href="' . e(base_url('pages/loan-view.php?id=' . $id . '&mode=' . $modeQs)) . '">Back to loan</a>';
+    require __DIR__ . '/../includes/header.php';
+    ?>
+    <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
+    <div class="print-sheet card">
+      <div class="print-header report-header">
+        <div>
+          <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
+          <div class="report-doc-title">Bank Loan Report</div>
+          <div class="print-meta report-meta" style="text-align:left">
+            <?= e($loan['lender_name']) ?> · <?= e($loan['company_name']) ?>
+            <?= $loan['project_name'] ? ' · ' . e($loan['project_name']) : '' ?>
+          </div>
+        </div>
+        <div class="print-meta report-meta">Generated <?= e(date('d-m-Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?><br>Status: <?= e(ucfirst((string) $loan['status'])) ?></div>
+      </div>
+
+      <div class="report-summary">
+        <div>
+          <div class="label">Loan amount</div>
+          <div class="value"><?= money($loan['loan_amount']) ?></div>
+        </div>
+        <div>
+          <div class="label">Outstanding</div>
+          <div class="value"><?= money($loan['outstanding_amount']) ?></div>
+        </div>
+        <div>
+          <div class="label">Total repaid</div>
+          <div class="value"><?= money($totalRepaid) ?></div>
+        </div>
+        <div>
+          <div class="label">Principal / Interest</div>
+          <div class="value" style="font-size:0.95rem">
+            <span class="text-success"><?= money($principalRepaid) ?></span>
+            /
+            <span class="text-danger"><?= money($interestRepaid) ?></span>
+          </div>
+        </div>
+      </div>
+
+      <?php if ($borrowerReportRows): ?>
+      <h3 style="margin:1.25rem 0 0.6rem;font-size:1rem">Borrowers / guarantors</h3>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Name</th>
+              <th>A/C</th>
+              <th class="num">Loan</th>
+              <th class="num">Outstanding</th>
+              <th class="num">Principal repaid</th>
+              <th class="num">Interest repaid</th>
+              <th class="num">Total repaid</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($borrowerReportRows as $i => $br): ?>
+              <tr>
+                <td><?= $i + 1 ?></td>
+                <td><?= e($br['name']) ?></td>
+                <td><?= e($br['account_number'] ?: '—') ?></td>
+                <td class="num"><?= $br['loan_amount'] !== null ? indian_number_format($br['loan_amount'], 2) : '—' ?></td>
+                <td class="num"><?= $br['outstanding'] !== null ? indian_number_format($br['outstanding'], 2) : '—' ?></td>
+                <td class="num text-success"><?= indian_number_format($br['principal_repaid'], 2) ?></td>
+                <td class="num text-danger"><?= indian_number_format($br['interest_repaid'], 2) ?></td>
+                <td class="num"><?= indian_number_format($br['total_repaid'], 2) ?><?= $br['repay_count'] ? ' (' . $br['repay_count'] . ')' : '' ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3">TOTAL</td>
+              <td class="num"><?= indian_number_format($borrowersTotal, 2) ?></td>
+              <td class="num"><?= indian_number_format($borrowersOutstandingTotal, 2) ?></td>
+              <td colspan="3"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <?php endif; ?>
+
+      <h3 style="margin:1.25rem 0 0.6rem;font-size:1rem">Repayment history (<?= count($repayments) ?>)</h3>
+      <?php if (!$repayments): ?>
+        <p class="muted">No repayments recorded.</p>
+      <?php else: ?>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Date</th>
+              <th>Borrower</th>
+              <th>Bank account</th>
+              <th class="num">Amount (₹)</th>
+              <th class="num">Principal (₹)</th>
+              <th class="num">Interest (₹)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($repayments as $i => $r): ?>
+              <tr>
+                <td><?= $i + 1 ?></td>
+                <td><?= e(format_date($r['payment_date'])) ?></td>
+                <td><?= e($r['borrower_name'] ?: '—') ?></td>
+                <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
+                <td class="num"><?= indian_number_format((float) $r['amount'], 2) ?></td>
+                <td class="num text-success"><?= indian_number_format((float) $r['principal_amount'], 2) ?></td>
+                <td class="num text-danger"><?= indian_number_format((float) $r['interest_amount'], 2) ?></td>
+                <td><?= e($r['notes'] ?: '') ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="4">TOTAL</td>
+              <td class="num"><?= indian_number_format($totalRepaid, 2) ?></td>
+              <td class="num"><?= indian_number_format($principalRepaid, 2) ?></td>
+              <td class="num"><?= indian_number_format($interestRepaid, 2) ?></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <?php endif; ?>
+
+      <div class="report-footnote">
+        <p>System-generated loan report. Figures match the loan view at export time (loan <?= (int) $id ?>).</p>
+        <p>Interest + charges on loan: <?= $loan['interest_charges'] !== null ? money($loan['interest_charges']) : '—' ?>.</p>
+        <p>Confidential — internal use only.</p>
+      </div>
+    </div>
+    <?php
+    require __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
 $borrowerOptions = function (?int $selected = null) use ($borrowers): string {
     $html = '<option value="">Whole loan / unspecified</option>';
     foreach ($borrowers as $bo) {
@@ -211,16 +581,26 @@ $borrowerOptions = function (?int $selected = null) use ($borrowers): string {
     return $html;
 };
 
+$exportButtons =
+    '<form method="post" class="no-print" style="display:inline-flex;gap:0.35rem;flex-wrap:wrap;align-items:center">' .
+    csrf_field() .
+    '<button class="btn btn-outline" type="submit" name="export_action" value="pdf">PDF</button>' .
+    '<button class="btn btn-outline" type="submit" name="export_action" value="excel">Excel</button>' .
+    '<button class="btn btn-outline" type="submit" name="export_action" value="csv">CSV</button>' .
+    '</form>';
+
 $pageTitle = $loan['lender_name'];
 if ($viewOnly) {
     $pageSub = 'Loan overview — ' . $loan['company_name'] . '.';
     $pageActions =
+        $exportButtons .
         '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $id . '&mode=repay')) . '">Repayments</a>' .
         '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php?action=edit&id=' . $id)) . '">Edit loan</a>' .
         '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
 } else {
     $pageSub = 'Loan repayments — ' . $loan['company_name'] . '. Amounts vary, so each repayment is entered manually.';
     $pageActions =
+        $exportButtons .
         '<a class="btn btn-outline" href="' . e(base_url('pages/loan-view.php?id=' . $id . '&mode=view')) . '">View</a>' .
         '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php?action=edit&id=' . $id)) . '">Edit loan</a>' .
         '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
