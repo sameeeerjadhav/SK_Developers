@@ -3,6 +3,9 @@ config/database.php
 config/installed.lock
 config/.schema_version
 .env
+composer.phar
+_push_clean.ps1
+commit-msg-clean.txt
 
 # OS / IDE
 .DS_Store
@@ -11,5 +14,4 @@ Thumbs.db
 .vscode/
 *.log
 
-# Composer (if added later)
-/vendor/
+# vendor/ is committed so Hostinger git deploy works without running composer

@@ -67,6 +67,7 @@ try {
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/migrate.php';
+require_once __DIR__ . '/pdf.php';
 
 if ($pdo instanceof PDO) {
     try {

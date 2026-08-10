@@ -429,147 +429,238 @@ if (in_array($exportAction, ['csv', 'excel', 'pdf'], true)) {
         exit;
     }
 
-    // PDF: print-ready report (same pattern as loan repayments / reports)
-    $pageTitle = 'Loan report — ' . $loan['lender_name'];
-    $pageSub = 'Print or Save as PDF.';
-    $pageActions =
-        '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>' .
-        '<a class="btn btn-outline no-print" href="' . e(base_url('pages/loan-view.php?id=' . $id . '&mode=' . $modeQs)) . '">Back to loan</a>';
-    require __DIR__ . '/../includes/header.php';
+    // PDF: real Dompdf download (not browser print)
+    $generatedAt = date('d-m-Y, h:i A');
+    $generatedBy = current_user()['name'] ?? '';
+    $interestChargesLabel = $loan['interest_charges'] !== null ? money($loan['interest_charges']) : '—';
+
+    ob_start();
     ?>
-    <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
-    <div class="print-sheet card">
-      <div class="print-header report-header">
-        <div>
-          <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
-          <div class="report-doc-title">Bank Loan Report</div>
-          <div class="print-meta report-meta" style="text-align:left">
-            <?= e($loan['lender_name']) ?> · <?= e($loan['company_name']) ?>
-            <?= $loan['project_name'] ? ' · ' . e($loan['project_name']) : '' ?>
-          </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { margin: 14mm 12mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: DejaVu Sans, sans-serif;
+    font-size: 9pt;
+    color: #0b1f1c;
+    margin: 0;
+    line-height: 1.35;
+  }
+  .brand { font-size: 16pt; font-weight: 700; color: #0f766e; margin: 0 0 2px; }
+  .doc-title {
+    font-size: 11pt; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.06em; margin: 0 0 4px;
+  }
+  .meta { font-size: 8pt; color: #5b6f6b; }
+  .header-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  .header-table td { vertical-align: top; padding: 0; }
+  .header-table td.right { text-align: right; }
+  .summary {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 12px;
+    border: 1px solid #cfe3df;
+  }
+  .summary td {
+    width: 25%;
+    padding: 8px 10px;
+    border-right: 1px solid #cfe3df;
+    background: #f7fcfb;
+  }
+  .summary td:last-child { border-right: none; }
+  .summary .label {
+    font-size: 7pt; text-transform: uppercase; letter-spacing: 0.05em;
+    color: #5b6f6b; font-weight: 700; margin-bottom: 3px;
+  }
+  .summary .value { font-size: 11pt; font-weight: 700; }
+  .ok { color: #047857; }
+  .bad { color: #b91c1c; }
+  h3 {
+    font-size: 10pt; margin: 14px 0 6px; color: #0f766e;
+    border-bottom: 1px solid #cfe3df; padding-bottom: 3px;
+  }
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 8pt;
+  }
+  table.data th, table.data td {
+    border: 1px solid #d7e6e2;
+    padding: 4px 5px;
+    vertical-align: top;
+    word-wrap: break-word;
+  }
+  table.data th {
+    background: #eef8f5;
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    text-align: left;
+  }
+  table.data td.num, table.data th.num { text-align: right; }
+  table.data tfoot td {
+    background: #eef8f5;
+    font-weight: 700;
+    border-top: 2px solid #9ec5bd;
+  }
+  .footnote {
+    margin-top: 14px;
+    padding-top: 8px;
+    border-top: 1px solid #cfe3df;
+    font-size: 7.5pt;
+    color: #5b6f6b;
+  }
+  .footnote p { margin: 2px 0; }
+</style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td>
+        <div class="brand">Sai Kuber Developers</div>
+        <div class="doc-title">Bank Loan Report</div>
+        <div class="meta">
+          <?= pdf_e($loan['lender_name']) ?> · <?= pdf_e($loan['company_name']) ?>
+          <?= $loan['project_name'] ? ' · ' . pdf_e($loan['project_name']) : '' ?>
         </div>
-        <div class="print-meta report-meta">Generated <?= e(date('d-m-Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?><br>Status: <?= e(ucfirst((string) $loan['status'])) ?></div>
-      </div>
+      </td>
+      <td class="right meta">
+        Generated <?= pdf_e($generatedAt) ?><br>
+        By <?= pdf_e($generatedBy) ?><br>
+        Status: <?= pdf_e(ucfirst((string) $loan['status'])) ?>
+      </td>
+    </tr>
+  </table>
 
-      <div class="report-summary">
-        <div>
-          <div class="label">Loan amount</div>
-          <div class="value"><?= money($loan['loan_amount']) ?></div>
+  <table class="summary">
+    <tr>
+      <td>
+        <div class="label">Loan amount</div>
+        <div class="value"><?= pdf_e(money($loan['loan_amount'])) ?></div>
+      </td>
+      <td>
+        <div class="label">Outstanding</div>
+        <div class="value"><?= pdf_e(money($loan['outstanding_amount'])) ?></div>
+      </td>
+      <td>
+        <div class="label">Total repaid</div>
+        <div class="value"><?= pdf_e(money($totalRepaid)) ?></div>
+      </td>
+      <td>
+        <div class="label">Principal / Interest</div>
+        <div class="value" style="font-size:9.5pt">
+          <span class="ok"><?= pdf_e(money($principalRepaid)) ?></span>
+          /
+          <span class="bad"><?= pdf_e(money($interestRepaid)) ?></span>
         </div>
-        <div>
-          <div class="label">Outstanding</div>
-          <div class="value"><?= money($loan['outstanding_amount']) ?></div>
-        </div>
-        <div>
-          <div class="label">Total repaid</div>
-          <div class="value"><?= money($totalRepaid) ?></div>
-        </div>
-        <div>
-          <div class="label">Principal / Interest</div>
-          <div class="value" style="font-size:0.95rem">
-            <span class="text-success"><?= money($principalRepaid) ?></span>
-            /
-            <span class="text-danger"><?= money($interestRepaid) ?></span>
-          </div>
-        </div>
-      </div>
+      </td>
+    </tr>
+  </table>
 
-      <?php if ($borrowerReportRows): ?>
-      <h3 style="margin:1.25rem 0 0.6rem;font-size:1rem">Borrowers / guarantors</h3>
-      <div class="table-wrap">
-        <table class="data">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Name</th>
-              <th>A/C</th>
-              <th class="num">Loan</th>
-              <th class="num">Outstanding</th>
-              <th class="num">Principal repaid</th>
-              <th class="num">Interest repaid</th>
-              <th class="num">Total repaid</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php foreach ($borrowerReportRows as $i => $br): ?>
-              <tr>
-                <td><?= $i + 1 ?></td>
-                <td><?= e($br['name']) ?></td>
-                <td><?= e($br['account_number'] ?: '—') ?></td>
-                <td class="num"><?= $br['loan_amount'] !== null ? indian_number_format($br['loan_amount'], 2) : '—' ?></td>
-                <td class="num"><?= $br['outstanding'] !== null ? indian_number_format($br['outstanding'], 2) : '—' ?></td>
-                <td class="num text-success"><?= indian_number_format($br['principal_repaid'], 2) ?></td>
-                <td class="num text-danger"><?= indian_number_format($br['interest_repaid'], 2) ?></td>
-                <td class="num"><?= indian_number_format($br['total_repaid'], 2) ?><?= $br['repay_count'] ? ' (' . $br['repay_count'] . ')' : '' ?></td>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="3">TOTAL</td>
-              <td class="num"><?= indian_number_format($borrowersTotal, 2) ?></td>
-              <td class="num"><?= indian_number_format($borrowersOutstandingTotal, 2) ?></td>
-              <td colspan="3"></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <?php endif; ?>
+  <?php if ($borrowerReportRows): ?>
+  <h3>Borrowers / guarantors (<?= count($borrowerReportRows) ?>)</h3>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:4%">#</th>
+        <th style="width:22%">Name</th>
+        <th style="width:8%">A/C</th>
+        <th class="num" style="width:11%">Loan</th>
+        <th class="num" style="width:11%">Outstanding</th>
+        <th class="num" style="width:12%">Principal repaid</th>
+        <th class="num" style="width:12%">Interest repaid</th>
+        <th class="num" style="width:20%">Total repaid</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php foreach ($borrowerReportRows as $i => $br): ?>
+      <tr>
+        <td><?= $i + 1 ?></td>
+        <td><?= pdf_e($br['name']) ?></td>
+        <td><?= pdf_e($br['account_number'] !== '' ? $br['account_number'] : '—') ?></td>
+        <td class="num"><?= $br['loan_amount'] !== null ? pdf_e(indian_number_format($br['loan_amount'], 2)) : '—' ?></td>
+        <td class="num"><?= $br['outstanding'] !== null ? pdf_e(indian_number_format($br['outstanding'], 2)) : '—' ?></td>
+        <td class="num ok"><?= pdf_e(indian_number_format($br['principal_repaid'], 2)) ?></td>
+        <td class="num bad"><?= pdf_e(indian_number_format($br['interest_repaid'], 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($br['total_repaid'], 2)) ?><?= $br['repay_count'] ? ' (' . $br['repay_count'] . ')' : '' ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3">TOTAL</td>
+        <td class="num"><?= pdf_e(indian_number_format($borrowersTotal, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($borrowersOutstandingTotal, 2)) ?></td>
+        <td colspan="3"></td>
+      </tr>
+    </tfoot>
+  </table>
+  <?php endif; ?>
 
-      <h3 style="margin:1.25rem 0 0.6rem;font-size:1rem">Repayment history (<?= count($repayments) ?>)</h3>
-      <?php if (!$repayments): ?>
-        <p class="muted">No repayments recorded.</p>
-      <?php else: ?>
-      <div class="table-wrap">
-        <table class="data">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Date</th>
-              <th>Borrower</th>
-              <th>Bank account</th>
-              <th class="num">Amount (₹)</th>
-              <th class="num">Principal (₹)</th>
-              <th class="num">Interest (₹)</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php foreach ($repayments as $i => $r): ?>
-              <tr>
-                <td><?= $i + 1 ?></td>
-                <td><?= e(format_date($r['payment_date'])) ?></td>
-                <td><?= e($r['borrower_name'] ?: '—') ?></td>
-                <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
-                <td class="num"><?= indian_number_format((float) $r['amount'], 2) ?></td>
-                <td class="num text-success"><?= indian_number_format((float) $r['principal_amount'], 2) ?></td>
-                <td class="num text-danger"><?= indian_number_format((float) $r['interest_amount'], 2) ?></td>
-                <td><?= e($r['notes'] ?: '') ?></td>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4">TOTAL</td>
-              <td class="num"><?= indian_number_format($totalRepaid, 2) ?></td>
-              <td class="num"><?= indian_number_format($principalRepaid, 2) ?></td>
-              <td class="num"><?= indian_number_format($interestRepaid, 2) ?></td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      <?php endif; ?>
+  <h3>Repayment history (<?= count($repayments) ?>)</h3>
+  <?php if (!$repayments): ?>
+    <p class="meta">No repayments recorded.</p>
+  <?php else: ?>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:4%">#</th>
+        <th style="width:10%">Date</th>
+        <th style="width:18%">Borrower</th>
+        <th style="width:18%">Bank account</th>
+        <th class="num" style="width:12%">Amount</th>
+        <th class="num" style="width:12%">Principal</th>
+        <th class="num" style="width:12%">Interest</th>
+        <th style="width:14%">Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php foreach ($repayments as $i => $r): ?>
+      <tr>
+        <td><?= $i + 1 ?></td>
+        <td><?= pdf_e(format_date($r['payment_date'])) ?></td>
+        <td><?= pdf_e($r['borrower_name'] ?: '—') ?></td>
+        <td><?= $r['account_name'] ? pdf_e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
+        <td class="num"><?= pdf_e(indian_number_format((float) $r['amount'], 2)) ?></td>
+        <td class="num ok"><?= pdf_e(indian_number_format((float) $r['principal_amount'], 2)) ?></td>
+        <td class="num bad"><?= pdf_e(indian_number_format((float) $r['interest_amount'], 2)) ?></td>
+        <td><?= pdf_e($r['notes'] ?: '') ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4">TOTAL</td>
+        <td class="num"><?= pdf_e(indian_number_format($totalRepaid, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($principalRepaid, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($interestRepaid, 2)) ?></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  <?php endif; ?>
 
-      <div class="report-footnote">
-        <p>System-generated loan report. Figures match the loan view at export time (loan <?= (int) $id ?>).</p>
-        <p>Interest + charges on loan: <?= $loan['interest_charges'] !== null ? money($loan['interest_charges']) : '—' ?>.</p>
-        <p>Confidential — internal use only.</p>
-      </div>
-    </div>
+  <div class="footnote">
+    <p>System-generated loan report. Figures match the loan screen at export time (loan #<?= (int) $id ?>).</p>
+    <p>Interest + charges on loan: <?= pdf_e($interestChargesLabel) ?>.</p>
+    <p>Confidential — internal use only.</p>
+  </div>
+</body>
+</html>
     <?php
-    require __DIR__ . '/../includes/footer.php';
-    exit;
+    $html = ob_get_clean();
+    $pdfName = 'loan_' . $safeLender . '_' . $id . '_' . $stamp . '.pdf';
+    try {
+        pdf_download($html, $pdfName, 'landscape', 'A4');
+    } catch (Throwable $e) {
+        flash('error', 'PDF generation failed: ' . $e->getMessage());
+        redirect('pages/loan-view.php?id=' . $id . '&mode=' . $modeQs);
+    }
 }
 
 $borrowerOptions = function (?int $selected = null) use ($borrowers): string {

@@ -1,0 +1,1 @@
+{"name":"saikuber/finance","description":"Sai Kuber Developers Finance ERP","require":{"php":">=7.4","dompdf/dompdf":"^3.0"},"config":{"optimize-autoloader":true,"sort-packages":true}}
