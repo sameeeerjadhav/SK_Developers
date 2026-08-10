@@ -46,7 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding, $interestCharges, $status, $notes, $editId]);
             sync_loan_borrowers($pdo, $editId, $borrowersData);
             flash('success', 'Bank loan updated.');
-            redirect('pages/loan-view.php?id=' . $editId);
+            redirect('pages/loan-view.php?id=' . $editId . '&mode=view');
         } else {
             $stmt = $pdo->prepare('INSERT INTO bank_loans (company_id, project_id, lender_name, loan_amount, outstanding_amount, interest_charges, status, notes) VALUES (?,?,?,?,?,?,?,?)');
             $stmt->execute([$companyId, $projectId, $lender, $loanAmount, $outstanding ?: $loanAmount, $interestCharges, $status, $notes]);
@@ -73,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             flash('success', 'Bank loan added' . ($postToLedger ? ' and posted to ledger.' : '.'));
-            redirect('pages/loan-view.php?id=' . $newLoanId);
+            redirect('pages/loan-view.php?id=' . $newLoanId . '&mode=view');
         }
         redirect('pages/bank-loans.php');
     }
@@ -105,7 +105,7 @@ if ($action === 'add' || $action === 'edit') {
     }
     $knownBorrowerNames = $pdo->query('SELECT DISTINCT name FROM loan_borrowers ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
     $pageTitle = $action === 'edit' ? 'Edit bank loan' : 'Add bank loan';
-    $pageActions = ($row ? '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $row['id'])) . '">Record repayment</a>' : '')
+    $pageActions = ($row ? '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $row['id'] . '&mode=repay')) . '">Record repayment</a>' : '')
         . '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
     $preCompany = (int) ($row['company_id'] ?? 0);
     require __DIR__ . '/../includes/header.php';
@@ -327,7 +327,8 @@ require __DIR__ . '/../includes/header.php';
               <td class="num"><?= $l['interest_charges'] !== null ? money($l['interest_charges']) : '—' ?></td>
               <td><?= status_chip($l['status']) ?></td>
               <td class="actions">
-                <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'])) ?>">View</a>
+                <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'] . '&mode=view')) ?>">View</a>
+                <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'] . '&mode=repay')) ?>">Repayments</a>
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/bank-loans.php?action=edit&id=' . $l['id'])) ?>">Edit</a>
                 <?php if (can_delete()): ?>
                 <form method="post" style="display:inline">

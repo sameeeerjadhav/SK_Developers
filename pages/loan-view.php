@@ -4,6 +4,7 @@ require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
 $id = (int) get('id', 0);
+$viewOnly = get('mode', 'view') !== 'repay';
 $stmt = $pdo->prepare(
     'SELECT l.*, c.name AS company_name, p.name AS project_name
      FROM bank_loans l
@@ -19,6 +20,10 @@ if (!$loan) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($viewOnly) {
+        flash('error', 'Open Repayments to record or edit payments.');
+        redirect('pages/loan-view.php?id=' . $id . '&mode=view');
+    }
     verify_csrf();
     $postAction = post('action', '');
 
@@ -33,13 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($amount <= 0) {
             flash('error', 'Enter a positive repayment amount.');
-            redirect('pages/loan-view.php?id=' . $id);
+            redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
         }
         $bc = $pdo->prepare('SELECT COUNT(*) FROM loan_borrowers WHERE loan_id = ?');
         $bc->execute([$id]);
         if ((int) $bc->fetchColumn() > 0 && !$borrowerId) {
             flash('error', 'Select which borrower paid this amount.');
-            redirect('pages/loan-view.php?id=' . $id);
+            redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
         }
         if ($interestAmount > $amount) {
             $interestAmount = $amount;
@@ -85,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         refresh_loan_outstanding($pdo, $id);
         audit_log($pdo, 'create', 'loan_repayment', $id, 'Recorded repayment ' . money($amount) . ' (P ' . money($principalAmount) . ' / I ' . money($interestAmount) . ') for ' . $loan['lender_name'] . $descSuffix);
         flash('success', 'Repayment recorded.');
-        redirect('pages/loan-view.php?id=' . $id);
+        redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
     }
 
     if ($postAction === 'edit_repayment') {
@@ -102,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $repayment = $rStmt->fetch();
         if (!$repayment || $amount <= 0) {
             flash('error', 'Invalid repayment.');
-            redirect('pages/loan-view.php?id=' . $id);
+            redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
         }
         if ($interestAmount > $amount) {
             $interestAmount = $amount;
@@ -135,13 +140,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         refresh_loan_outstanding($pdo, $id);
         audit_log($pdo, 'update', 'loan_repayment', $id, 'Edited repayment #' . $repayId . ' to ' . money($amount) . ' (P ' . money($principalAmount) . ' / I ' . money($interestAmount) . ')' . $descSuffix);
         flash('success', 'Repayment updated.');
-        redirect('pages/loan-view.php?id=' . $id);
+        redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
     }
 
     if ($postAction === 'delete_repayment') {
         if (!can_delete()) {
             flash('error', 'Only admins can delete repayments.');
-            redirect('pages/loan-view.php?id=' . $id);
+            redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
         }
         $repayId = (int) post('repayment_id', 0);
         $rStmt = $pdo->prepare('SELECT transaction_id FROM loan_repayments WHERE id = ? AND loan_id = ?');
@@ -154,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         refresh_loan_outstanding($pdo, $id);
         audit_log($pdo, 'delete', 'loan_repayment', $id, 'Deleted repayment #' . $repayId . ' for ' . $loan['lender_name']);
         flash('success', 'Repayment deleted.');
-        redirect('pages/loan-view.php?id=' . $id);
+        redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
     }
 }
 
@@ -207,10 +212,19 @@ $borrowerOptions = function (?int $selected = null) use ($borrowers): string {
 };
 
 $pageTitle = $loan['lender_name'];
-$pageSub = 'Loan repayments — ' . $loan['company_name'] . '. Amounts vary, so each repayment is entered manually.';
-$pageActions =
-    '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php?action=edit&id=' . $id)) . '">Edit loan</a>' .
-    '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
+if ($viewOnly) {
+    $pageSub = 'Loan overview — ' . $loan['company_name'] . '.';
+    $pageActions =
+        '<a class="btn btn-primary" href="' . e(base_url('pages/loan-view.php?id=' . $id . '&mode=repay')) . '">Repayments</a>' .
+        '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php?action=edit&id=' . $id)) . '">Edit loan</a>' .
+        '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
+} else {
+    $pageSub = 'Loan repayments — ' . $loan['company_name'] . '. Amounts vary, so each repayment is entered manually.';
+    $pageActions =
+        '<a class="btn btn-outline" href="' . e(base_url('pages/loan-view.php?id=' . $id . '&mode=view')) . '">View</a>' .
+        '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php?action=edit&id=' . $id)) . '">Edit loan</a>' .
+        '<a class="btn btn-outline" href="' . e(base_url('pages/bank-loans.php')) . '">Back</a>';
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -282,6 +296,7 @@ require __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
+<?php if (!$viewOnly): ?>
 <div class="card">
   <div class="card-head">
     <h2 class="card-title">Record a repayment</h2>
@@ -336,6 +351,7 @@ require __DIR__ . '/../includes/header.php';
     </div>
   </form>
 </div>
+<?php endif; ?>
 
 <div class="card">
   <div class="card-head">
@@ -343,7 +359,7 @@ require __DIR__ . '/../includes/header.php';
     <span class="muted" style="font-size:0.8rem"><?= count($repayments) ?> entries</span>
   </div>
   <?php if (!$repayments): ?>
-    <div class="empty"><strong>No repayments recorded yet</strong><p>Use the form above whenever a repayment is made — amounts don't need to be fixed or scheduled.</p></div>
+    <div class="empty"><strong>No repayments recorded yet</strong><p><?= $viewOnly ? 'Open Repayments to record a payment.' : 'Use the form above whenever a repayment is made — amounts don\'t need to be fixed or scheduled.' ?></p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
@@ -363,8 +379,8 @@ require __DIR__ . '/../includes/header.php';
             $repayEditId = 'repay-edit-' . $r['id'];
             $repaySearch = mb_strtolower(trim(($r['borrower_name'] ?? '') . ' ' . ($r['notes'] ?? '') . ' ' . ($r['account_name'] ?? '')));
           ?>
-            <tr class="row-clickable repay-row" data-row-toggle="<?= e($repayEditId) ?>" data-search="<?= e($repaySearch) ?>" data-borrower-id="<?= (int) ($r['borrower_id'] ?? 0) ?>" title="Click to edit">
-              <td><span class="row-caret">▸</span><?= e(format_date($r['payment_date'])) ?></td>
+            <tr class="<?= $viewOnly ? '' : 'row-clickable ' ?>repay-row" <?= $viewOnly ? '' : 'data-row-toggle="' . e($repayEditId) . '" ' ?>data-search="<?= e($repaySearch) ?>" data-borrower-id="<?= (int) ($r['borrower_id'] ?? 0) ?>" <?= $viewOnly ? '' : 'title="Click to edit"' ?>>
+              <td><?= $viewOnly ? '' : '<span class="row-caret">▸</span>' ?><?= e(format_date($r['payment_date'])) ?></td>
               <td class="num"><?= money($r['amount']) ?></td>
               <td class="num text-success"><?= money($r['principal_amount']) ?></td>
               <td class="num text-danger"><?= money($r['interest_amount']) ?></td>
@@ -372,6 +388,7 @@ require __DIR__ . '/../includes/header.php';
               <td><?= e($r['borrower_name'] ?: '—') ?></td>
               <td><?= e($r['notes'] ?: '') ?></td>
             </tr>
+            <?php if (!$viewOnly): ?>
             <tr class="row-detail repay-row-detail" id="<?= e($repayEditId) ?>" data-search="<?= e($repaySearch) ?>" data-borrower-id="<?= (int) ($r['borrower_id'] ?? 0) ?>" hidden>
               <td colspan="7">
                 <form method="post" class="form-grid repay-edit-form" style="padding:0">
@@ -422,6 +439,7 @@ require __DIR__ . '/../includes/header.php';
                 <?php endif; ?>
               </td>
             </tr>
+            <?php endif; ?>
           <?php endforeach; ?>
         </tbody>
         <tfoot>
