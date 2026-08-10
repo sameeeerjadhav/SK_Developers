@@ -225,9 +225,16 @@ require __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if ($borrowers): ?>
-<div class="card">
-  <h2 class="card-title">Borrowers / guarantors</h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem">
+<div class="card" id="borrowersSection">
+  <div class="card-head" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
+    <h2 class="card-title" style="margin:0">Borrowers / guarantors</h2>
+    <div class="field" style="flex:1;min-width:220px;max-width:360px;margin:0">
+      <label for="borrowerSearch" style="margin-bottom:0.25rem">Search borrower</label>
+      <input type="search" id="borrowerSearch" placeholder="Type name or A/C number…" autocomplete="off">
+    </div>
+    <span class="muted" id="borrowerSearchCount" style="font-size:0.8rem"><?= count($borrowers) ?> people</span>
+  </div>
+  <div id="borrowerGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-top:1rem">
     <?php foreach ($borrowers as $b):
       $bid = (int) $b['id'];
       $paid = $paidByBorrower[$bid] ?? ['total' => 0.0, 'principal' => 0.0, 'interest' => 0.0, 'count' => 0];
@@ -235,8 +242,9 @@ require __DIR__ . '/../includes/header.php';
       $outstanding = $b['outstanding_amount'] !== null
           ? (float) $b['outstanding_amount']
           : ($loanAmt !== null ? max(0, $loanAmt - (float) $paid['principal']) : null);
+      $searchKey = mb_strtolower(trim(($b['name'] ?? '') . ' ' . ($b['account_number'] ?? '')));
     ?>
-      <div class="company-card" style="cursor:default">
+      <div class="company-card borrower-card" style="cursor:default" data-borrower-id="<?= $bid ?>" data-search="<?= e($searchKey) ?>">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.6rem;margin-bottom:0.75rem">
           <div>
             <div class="kicker">Borrower</div>
@@ -264,6 +272,7 @@ require __DIR__ . '/../includes/header.php';
       </div>
     <?php endforeach; ?>
   </div>
+  <div id="borrowerSearchEmpty" class="empty" style="display:none;margin-top:1rem"><strong>No match</strong><p>Try another name or account number.</p></div>
   <?php if ($borrowersTotal > 0 || $borrowersOutstandingTotal > 0): ?>
   <div class="grid-2" style="margin-top:1rem;gap:0.75rem">
     <div class="highlight-box">Borrowers' total loan amount: <strong><?= money($borrowersTotal) ?></strong></div>
@@ -352,8 +361,9 @@ require __DIR__ . '/../includes/header.php';
         <tbody>
           <?php foreach ($repayments as $r):
             $repayEditId = 'repay-edit-' . $r['id'];
+            $repaySearch = mb_strtolower(trim(($r['borrower_name'] ?? '') . ' ' . ($r['notes'] ?? '') . ' ' . ($r['account_name'] ?? '')));
           ?>
-            <tr class="row-clickable" data-row-toggle="<?= e($repayEditId) ?>" title="Click to edit">
+            <tr class="row-clickable repay-row" data-row-toggle="<?= e($repayEditId) ?>" data-search="<?= e($repaySearch) ?>" data-borrower-id="<?= (int) ($r['borrower_id'] ?? 0) ?>" title="Click to edit">
               <td><span class="row-caret">▸</span><?= e(format_date($r['payment_date'])) ?></td>
               <td class="num"><?= money($r['amount']) ?></td>
               <td class="num text-success"><?= money($r['principal_amount']) ?></td>
@@ -362,7 +372,7 @@ require __DIR__ . '/../includes/header.php';
               <td><?= e($r['borrower_name'] ?: '—') ?></td>
               <td><?= e($r['notes'] ?: '') ?></td>
             </tr>
-            <tr class="row-detail" id="<?= e($repayEditId) ?>" hidden>
+            <tr class="row-detail repay-row-detail" id="<?= e($repayEditId) ?>" data-search="<?= e($repaySearch) ?>" data-borrower-id="<?= (int) ($r['borrower_id'] ?? 0) ?>" hidden>
               <td colspan="7">
                 <form method="post" class="form-grid repay-edit-form" style="padding:0">
                   <?= csrf_field() ?>
@@ -429,5 +439,64 @@ require __DIR__ . '/../includes/header.php';
     </div>
   <?php endif; ?>
 </div>
+
+<script>
+(function () {
+  var input = document.getElementById('borrowerSearch');
+  if (!input) return;
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.borrower-card'));
+  var countEl = document.getElementById('borrowerSearchCount');
+  var emptyEl = document.getElementById('borrowerSearchEmpty');
+  var repayRows = Array.prototype.slice.call(document.querySelectorAll('.repay-row'));
+  var repayDetails = Array.prototype.slice.call(document.querySelectorAll('.repay-row-detail'));
+  var borrowerSelect = document.querySelector('#repaymentForm select[name="borrower_id"]');
+  var totalPeople = cards.length;
+
+  function applySearch() {
+    var q = (input.value || '').trim().toLowerCase();
+    var visible = 0;
+    var matchedIds = [];
+
+    cards.forEach(function (card) {
+      var hay = card.getAttribute('data-search') || '';
+      var show = !q || hay.indexOf(q) !== -1;
+      card.style.display = show ? '' : 'none';
+      if (show) {
+        visible++;
+        matchedIds.push(card.getAttribute('data-borrower-id'));
+      }
+    });
+
+    repayRows.forEach(function (row) {
+      var hay = row.getAttribute('data-search') || '';
+      var bid = row.getAttribute('data-borrower-id') || '';
+      var show = !q || hay.indexOf(q) !== -1 || (bid && matchedIds.indexOf(bid) !== -1);
+      row.style.display = show ? '' : 'none';
+      var detailId = row.getAttribute('data-row-toggle');
+      var detail = detailId ? document.getElementById(detailId) : null;
+      if (detail) {
+        if (!show) {
+          detail.hidden = true;
+          detail.style.display = 'none';
+        } else {
+          detail.style.display = '';
+        }
+      }
+    });
+
+    if (countEl) {
+      countEl.textContent = q ? (visible + ' of ' + totalPeople + ' people') : (totalPeople + ' people');
+    }
+    if (emptyEl) emptyEl.style.display = visible === 0 ? '' : 'none';
+
+    if (borrowerSelect && q && matchedIds.length === 1) {
+      borrowerSelect.value = matchedIds[0];
+    }
+  }
+
+  input.addEventListener('input', applySearch);
+  input.addEventListener('search', applySearch);
+})();
+</script>
 
 <?php require __DIR__ . '/../includes/footer.php'; ?>
