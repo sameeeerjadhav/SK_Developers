@@ -327,7 +327,7 @@ require __DIR__ . '/../includes/header.php';
               <td class="num"><?= $l['interest_charges'] !== null ? money($l['interest_charges']) : '—' ?></td>
               <td><?= status_chip($l['status']) ?></td>
               <td class="actions">
-                <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'])) ?>">Repayments</a>
+                <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/loan-view.php?id=' . $l['id'])) ?>">View</a>
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/bank-loans.php?action=edit&id=' . $l['id'])) ?>">Edit</a>
                 <?php if (can_delete()): ?>
                 <form method="post" style="display:inline">
