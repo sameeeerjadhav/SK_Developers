@@ -127,9 +127,63 @@ if ($action === 'add' || $action === 'edit') {
 
 $pageTitle = 'Assets';
 $pageSub = 'Track company assets and purchase values.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/assets.php?action=add')) . '">+ Add asset</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/assets.php?action=add')) . '">+ Add asset</a>';
 $assets = $pdo->query('SELECT a.*, c.name AS company_name FROM assets a JOIN companies c ON c.id = a.company_id ORDER BY a.created_at DESC')->fetchAll();
 $totalValue = array_sum(array_map(fn($a) => (float)($a['current_value'] ?? $a['purchase_value']), $assets));
+$purchaseTotal = array_sum(array_map(fn($a) => (float) $a['purchase_value'], $assets));
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $assetRows = [];
+    foreach ($assets as $i => $a) {
+        $current = (float) ($a['current_value'] ?? $a['purchase_value']);
+        $assetRows[] = [
+            (string) ($i + 1),
+            $a['name'] ?? '',
+            $a['company_name'] ?? '',
+            $a['asset_type'] ?? '',
+            report_plain_date($a['purchase_date'] ?? null),
+            (float) $a['purchase_value'],
+            $current,
+            $a['notes'] ?? '',
+        ];
+    }
+    report_download(post('export_action'), [
+        'filename' => 'assets_register',
+        'title' => 'Asset Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Assets', (string) count($assets)],
+        ],
+        'summary' => [
+            ['Purchase value', $purchaseTotal, 'money'],
+            ['Current value', $totalValue, 'money'],
+            ['Assets', count($assets), 'int'],
+        ],
+        'tables' => [[
+            'title' => 'Assets',
+            'columns' => [
+                ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                ['label' => 'Asset', 'type' => 'text', 'width' => '18%', 'xls_width' => 160],
+                ['label' => 'Company', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                ['label' => 'Type', 'type' => 'text', 'width' => '12%', 'xls_width' => 100],
+                ['label' => 'Purchase date', 'type' => 'text', 'width' => '10%', 'xls_width' => 90],
+                ['label' => 'Purchase (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Current (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Notes', 'type' => 'text', 'width' => '17%', 'xls_width' => 160],
+            ],
+            'rows' => $assetRows,
+            'totals' => ['', 'TOTAL', '', '', '', $purchaseTotal, $totalValue, ''],
+        ]],
+        'notes' => [
+            'System-generated asset register. Current value uses purchase value when current is not set.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/assets.php');
+}
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
