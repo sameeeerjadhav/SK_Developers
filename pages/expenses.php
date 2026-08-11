@@ -5,9 +5,6 @@ require_login();
 
 $filterCompany = (int) get('company_id', 0);
 $filterProject = (int) get('project_id', 0);
-$pageTitle = 'Expenses';
-$pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
-$pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php?type=expenses')) . '">PDF</a><a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
 
 [$from, $to, $month, $year] = period_from_request();
 
@@ -26,6 +23,117 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $rows = $stmt->fetchAll();
 $total = array_sum(array_map(fn($r) => (float)$r['amount'], $rows));
+
+$companyName = 'All companies';
+if ($filterCompany) {
+    $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
+    $cn->execute([$filterCompany]);
+    $companyName = (string) ($cn->fetchColumn() ?: 'Company #' . $filterCompany);
+}
+$projectName = 'All projects';
+if ($filterProject) {
+    $pn = $pdo->prepare('SELECT name FROM projects WHERE id = ?');
+    $pn->execute([$filterProject]);
+    $projectName = (string) ($pn->fetchColumn() ?: 'Project #' . $filterProject);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $byCategory = [];
+    foreach ($rows as $r) {
+        $key = (string) $r['category_name'];
+        if (!isset($byCategory[$key])) {
+            $byCategory[$key] = ['section' => $r['section'], 'count' => 0, 'amount' => 0.0];
+        }
+        $byCategory[$key]['count']++;
+        $byCategory[$key]['amount'] += (float) $r['amount'];
+    }
+    ksort($byCategory);
+
+    $entryRows = [];
+    foreach ($rows as $i => $r) {
+        $entryRows[] = [
+            (string) ($i + 1),
+            report_plain_date($r['txn_date'] ?? null),
+            $r['company_name'] ?? '',
+            $r['project_name'] ?? '',
+            $r['category_name'] ?? '',
+            ucwords(str_replace('_', ' ', (string) $r['section'])),
+            $r['payee_name'] ?? '',
+            $r['description'] ?? '',
+            (float) $r['amount'],
+        ];
+    }
+    $catRows = [];
+    $n = 0;
+    foreach ($byCategory as $name => $info) {
+        $n++;
+        $catRows[] = [
+            (string) $n,
+            $name,
+            ucwords(str_replace('_', ' ', (string) $info['section'])),
+            $info['count'],
+            $info['amount'],
+        ];
+    }
+
+    report_download(post('export_action'), [
+        'filename' => 'expense_register',
+        'title' => 'Expense Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Period', report_display_period($from, $to, $month, $year)],
+            ['Company', $companyName],
+            ['Project', $projectName],
+        ],
+        'summary' => [
+            ['Total expenses', $total, 'money'],
+            ['Entries', count($rows), 'int'],
+            ['Categories', count($byCategory), 'int'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Expense entries',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '9%', 'xls_width' => 80],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '14%', 'xls_width' => 140],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '12%', 'xls_width' => 110],
+                    ['label' => 'Section', 'type' => 'text', 'width' => '10%', 'xls_width' => 90],
+                    ['label' => 'Paid to', 'type' => 'text', 'width' => '12%', 'xls_width' => 110],
+                    ['label' => 'Particulars', 'type' => 'text', 'width' => '14%', 'xls_width' => 160],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 100],
+                ],
+                'rows' => $entryRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', $total],
+            ],
+            [
+                'title' => 'Category totals',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '8%', 'xls_width' => 35],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '40%', 'xls_width' => 180],
+                    ['label' => 'Section', 'type' => 'text', 'width' => '22%', 'xls_width' => 110],
+                    ['label' => 'Entries', 'type' => 'int', 'width' => '12%', 'xls_width' => 70],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '18%', 'xls_width' => 110],
+                ],
+                'rows' => $catRows,
+                'totals' => ['', 'TOTAL', '', count($rows), $total],
+            ],
+        ],
+        'notes' => [
+            'System-generated expense register. Amounts are in INR and match the selected filters at export time.',
+            'Includes Expense and Land Purchase debit entries.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/expenses.php');
+}
+
+$pageTitle = 'Expenses';
+$pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
 
 require __DIR__ . '/../includes/header.php';
 ?>
