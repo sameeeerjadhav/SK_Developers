@@ -988,6 +988,13 @@ require __DIR__ . '/../includes/header.php';
             <div style="font-size:1.1rem;font-weight:800;color:var(--primary-dark,#0f766e)"><?= $loanAmt !== null ? money($loanAmt) : '—' ?></div>
           </div>
         </div>
+        <form method="post" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin:0 0 0.85rem">
+          <?= csrf_field() ?>
+          <input type="hidden" name="borrower_id" value="<?= $bid ?>">
+          <button class="btn btn-primary btn-sm" type="submit" name="export_action" value="pdf">PDF</button>
+          <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel">Excel</button>
+          <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="csv">CSV</button>
+        </form>
         <table class="detail-table">
           <tbody>
             <tr><td>Outstanding</td><td class="<?= $outstanding !== null && $outstanding > 0 ? 'text-danger' : 'text-success' ?>"><strong><?= $outstanding !== null ? money($outstanding) : '—' ?></strong></td></tr>
@@ -1001,14 +1008,6 @@ require __DIR__ . '/../includes/header.php';
             <tr><td>Reconveyance</td><td><?= $b['reconveyance_date'] ? e(format_date($b['reconveyance_date'])) : '—' ?></td></tr>
           </tbody>
         </table>
-        <form method="post" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-top:0.9rem;padding-top:0.85rem;border-top:1px solid var(--border)">
-          <?= csrf_field() ?>
-          <input type="hidden" name="borrower_id" value="<?= $bid ?>">
-          <span class="muted" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;margin-right:0.15rem">This person</span>
-          <button class="btn btn-primary btn-sm" type="submit" name="export_action" value="pdf">PDF</button>
-          <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel">Excel</button>
-          <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="csv">CSV</button>
-        </form>
       </div>
     <?php endforeach; ?>
   </div>
