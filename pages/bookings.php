@@ -10,148 +10,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $postAction = post('action', '');
 
-    if (in_array(post('export_action', ''), ['csv', 'pdf'], true)) {
-        $exportAction = post('export_action');
-        $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['payment_ids'] ?? []), fn($id) => $id > 0)));
-
-        if (!$selectedIds) {
-            flash('error', 'Select at least one payment to export.');
-            redirect('pages/bookings.php');
-        }
-
-        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
-        $expStmt = $pdo->prepare(
-            "SELECT bp.*, cu.name AS customer_name, c.name AS company_name, b.property_type, b.plot_no
-             FROM booking_payments bp
-             JOIN bookings b ON b.id = bp.booking_id
-             JOIN customers cu ON cu.id = b.customer_id
-             JOIN companies c ON c.id = b.company_id
-             WHERE bp.id IN ($placeholders)
-             ORDER BY bp.payment_date DESC, bp.id DESC"
-        );
-        $expStmt->execute($selectedIds);
-        $exportRows = $expStmt->fetchAll();
-
-        if (!$exportRows) {
-            flash('error', 'Selected payments were not found.');
-            redirect('pages/bookings.php');
-        }
-
-        $exportReceived = array_sum(array_map(fn($r) => $r['payment_type'] === 'received' ? (float) $r['amount'] : 0, $exportRows));
-        $exportReturned = array_sum(array_map(fn($r) => $r['payment_type'] === 'returned' ? (float) $r['amount'] : 0, $exportRows));
-
-        $propertyLabel = fn($r) => $r['property_type'] === 'plot'
-            ? ('Plot ' . ($r['plot_no'] ?: '—'))
-            : ucwords(str_replace('_', ' ', $r['property_type']));
-
-        if ($exportAction === 'csv') {
-            $filename = 'booking_payments_' . date('Ymd_His') . '.csv';
-            header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Date', 'Customer', 'Company', 'Property', 'Type', 'Amount', 'Notes']);
-            foreach ($exportRows as $r) {
-                fputcsv($out, [
-                    $r['payment_date'],
-                    $r['customer_name'],
-                    $r['company_name'],
-                    $propertyLabel($r),
-                    $r['payment_type'] === 'received' ? 'Received' : 'Returned',
-                    number_format((float) $r['amount'], 2, '.', ''),
-                    $r['notes'] ?? '',
-                ]);
-            }
-            fputcsv($out, []);
-            fputcsv($out, ['', '', '', '', 'Total received', number_format($exportReceived, 2, '.', ''), '']);
-            fputcsv($out, ['', '', '', '', 'Total returned', number_format($exportReturned, 2, '.', ''), '']);
-            fclose($out);
-            exit;
-        }
-
-        // PDF: formal print-ready report sheet, same pattern as Investments/Loan Repayments.
-        $entryWord = count($exportRows) === 1 ? 'entry' : 'entries';
-        $datesCovered = array_unique(array_map(fn($r) => $r['payment_date'], $exportRows));
-        sort($datesCovered);
-        $rangeLabel = count($datesCovered) > 1
-            ? format_date($datesCovered[0]) . ' – ' . format_date(end($datesCovered))
-            : format_date($datesCovered[0] ?? null);
-
-        $pageTitle = 'Booking payments export';
-        $pageSub = count($exportRows) . ' selected ' . $entryWord . '.';
-        $pageActions = '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>';
-        require __DIR__ . '/../includes/header.php';
-        ?>
-        <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
-        <div class="print-sheet card">
-          <div class="print-header report-header">
-            <div>
-              <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
-              <div class="report-doc-title">Booking Payments Report</div>
-              <div class="print-meta report-meta" style="text-align:left"><?= count($exportRows) ?> <?= e($entryWord) ?> · <?= e($rangeLabel) ?></div>
-            </div>
-            <div class="print-meta report-meta">Generated <?= e(date('d-m-Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
-          </div>
-
-          <div class="report-summary">
-            <div>
-              <div class="label">Total received</div>
-              <div class="value text-success"><?= money($exportReceived) ?></div>
-            </div>
-            <div>
-              <div class="label">Total returned</div>
-              <div class="value text-danger"><?= money($exportReturned) ?></div>
-            </div>
-          </div>
-
-          <div class="table-wrap">
-            <table class="data">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th>Company</th>
-                  <th>Property</th>
-                  <th>Type</th>
-                  <th class="num">Amount (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php foreach ($exportRows as $i => $r): ?>
-                  <tr>
-                    <td><?= $i + 1 ?></td>
-                    <td><?= e(format_date($r['payment_date'])) ?></td>
-                    <td><?= e($r['customer_name']) ?></td>
-                    <td><?= e($r['company_name']) ?></td>
-                    <td><?= e($propertyLabel($r)) ?></td>
-                    <td><?= $r['payment_type'] === 'received' ? 'Received' : 'Returned' ?></td>
-                    <td class="num"><?= indian_number_format((float) $r['amount'], 2) ?></td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="5">TOTAL RECEIVED</td>
-                  <td class="num" colspan="2"><?= indian_number_format((float) $exportReceived, 2) ?></td>
-                </tr>
-                <tr>
-                  <td colspan="5">TOTAL RETURNED</td>
-                  <td class="num" colspan="2"><?= indian_number_format((float) $exportReturned, 2) ?></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <div class="report-footnote">
-            <p>This is a system-generated report from the Sai Kuber Developers finance system. Figures reflect the payments selected at export time.</p>
-            <p>Confidential — internal use only.</p>
-          </div>
-        </div>
-        <?php
-        require __DIR__ . '/../includes/footer.php';
-        exit;
-    }
 
     if ($postAction === 'save_booking') {
         $editId = (int) post('id', 0);
@@ -677,7 +535,8 @@ if ($month !== '' || $year !== '') {
 
 $pageTitle = 'Bookings';
 $pageSub = 'Plot, flat and row house bookings — customer info stays saved for future payments.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/bookings.php?action=add')) . '">+ New booking</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/bookings.php?action=add')) . '">+ New booking</a>';
 
 $sql = "SELECT b.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.email AS customer_email, cu.address AS customer_address,
                comp.name AS company_name, p.name AS project_name,
@@ -721,6 +580,209 @@ $totalSaleValue = array_sum(array_map(fn($b) => (float) $b['total_amount'], $boo
 $totalReceived = array_sum(array_map(fn($b) => (float) $b['received'], $bookings));
 $totalReturned = array_sum(array_map(fn($b) => (float) $b['returned'], $bookings));
 $totalRemaining = $totalSaleValue - $totalReceived + $totalReturned;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $propertyLabel = static function (array $r): string {
+        if (($r['property_type'] ?? '') === 'plot') {
+            return 'Plot ' . ($r['plot_no'] ?: '—');
+        }
+        return ucwords(str_replace('_', ' ', (string) ($r['property_type'] ?? '')));
+    };
+    $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['payment_ids'] ?? []), fn($id) => $id > 0)));
+    $companyName = 'All companies';
+    if ($filterCompany) {
+        $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
+        $cn->execute([$filterCompany]);
+        $companyName = (string) ($cn->fetchColumn() ?: 'Company #' . $filterCompany);
+    }
+
+    if ($selectedIds) {
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        $expStmt = $pdo->prepare(
+            "SELECT bp.*, cu.name AS customer_name, c.name AS company_name, p.name AS project_name,
+                    b.property_type, b.plot_no
+             FROM booking_payments bp
+             JOIN bookings b ON b.id = bp.booking_id
+             JOIN customers cu ON cu.id = b.customer_id
+             JOIN companies c ON c.id = b.company_id
+             LEFT JOIN projects p ON p.id = b.project_id
+             WHERE bp.id IN ($placeholders)
+             ORDER BY bp.payment_date ASC, bp.id ASC"
+        );
+        $expStmt->execute($selectedIds);
+        $exportRows = $expStmt->fetchAll();
+        if (!$exportRows) {
+            flash('error', 'Selected payments were not found.');
+            redirect('pages/bookings.php');
+        }
+        $exportReceived = array_sum(array_map(fn($r) => $r['payment_type'] === 'received' ? (float) $r['amount'] : 0, $exportRows));
+        $exportReturned = array_sum(array_map(fn($r) => $r['payment_type'] === 'returned' ? (float) $r['amount'] : 0, $exportRows));
+        $payRows = [];
+        foreach ($exportRows as $i => $r) {
+            $isRecv = ($r['payment_type'] ?? '') === 'received';
+            $amt = (float) $r['amount'];
+            $payRows[] = [
+                (string) ($i + 1),
+                report_plain_date($r['payment_date'] ?? null),
+                $r['customer_name'] ?? '',
+                $r['company_name'] ?? '',
+                $r['project_name'] ?? '',
+                $propertyLabel($r),
+                $isRecv ? 'Received' : 'Returned',
+                $isRecv ? $amt : null,
+                $isRecv ? null : $amt,
+                $r['notes'] ?? '',
+            ];
+        }
+        report_download(post('export_action'), [
+            'filename' => 'booking_payments',
+            'title' => 'Booking Payments Register',
+            'orientation' => 'landscape',
+            'meta' => [
+                ['Scope', 'Selected payments'],
+                ['Entries', (string) count($exportRows)],
+            ],
+            'summary' => [
+                ['Received', $exportReceived, 'money'],
+                ['Returned', $exportReturned, 'money'],
+                ['Net collected', $exportReceived - $exportReturned, 'money'],
+                ['Entries', count($exportRows), 'int'],
+            ],
+            'tables' => [[
+                'title' => 'Selected payments',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '9%', 'xls_width' => 80],
+                    ['label' => 'Customer', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '11%', 'xls_width' => 110],
+                    ['label' => 'Property', 'type' => 'text', 'width' => '10%', 'xls_width' => 90],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '8%', 'xls_width' => 70],
+                    ['label' => 'Received (INR)', 'type' => 'money', 'width' => '11%', 'xls_width' => 110],
+                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '11%', 'xls_width' => 110],
+                    ['label' => 'Notes', 'type' => 'text', 'width' => '9%', 'xls_width' => 140],
+                ],
+                'rows' => $payRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', '', $exportReceived, $exportReturned, ''],
+            ]],
+            'notes' => [
+                'System-generated booking payments register for the selected entries.',
+                'Confidential — internal use only.',
+            ],
+        ]);
+        redirect('pages/bookings.php');
+    }
+
+    $bookingRows = [];
+    foreach ($bookings as $i => $b) {
+        $received = (float) $b['received'];
+        $returned = (float) $b['returned'];
+        $sale = (float) $b['total_amount'];
+        $bookingRows[] = [
+            (string) ($i + 1),
+            $b['customer_name'] ?? '',
+            $b['customer_phone'] ?? '',
+            $propertyLabel($b),
+            $b['company_name'] ?? '',
+            $b['project_name'] ?? '',
+            $b['area_sqft'] !== null ? (string) $b['area_sqft'] : '',
+            $b['rate_per_sqft'] !== null ? (float) $b['rate_per_sqft'] : null,
+            $sale,
+            $received,
+            $returned,
+            $sale - $received + $returned,
+            ucfirst((string) ($b['status'] ?? '')),
+        ];
+    }
+    $payRows = [];
+    $payRecv = 0.0;
+    $payRet = 0.0;
+    $n = 0;
+    foreach ($bookings as $b) {
+        foreach ($paymentsByBooking[(int) $b['id']] ?? [] as $pay) {
+            $n++;
+            $isRecv = ($pay['payment_type'] ?? '') === 'received';
+            $amt = (float) $pay['amount'];
+            if ($isRecv) {
+                $payRecv += $amt;
+            } else {
+                $payRet += $amt;
+            }
+            $payRows[] = [
+                (string) $n,
+                report_plain_date($pay['payment_date'] ?? null),
+                $b['customer_name'] ?? '',
+                $propertyLabel($b),
+                $isRecv ? 'Received' : 'Returned',
+                $isRecv ? $amt : null,
+                $isRecv ? null : $amt,
+                $pay['notes'] ?? '',
+            ];
+        }
+    }
+    $rateColType = 'money';
+    report_download(post('export_action'), [
+        'filename' => 'bookings_register',
+        'title' => 'Booking Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Company', $companyName],
+            ['Status', $filterStatus !== '' ? ucfirst($filterStatus) : 'All'],
+            ['Search', $q !== '' ? $q : '—'],
+            ['Payment period', report_display_period($filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, $month, $year)],
+        ],
+        'summary' => [
+            ['Sale value', $totalSaleValue, 'money'],
+            ['Received', $totalReceived, 'money'],
+            ['Remaining', $totalRemaining, 'money'],
+            ['Bookings', count($bookings), 'int'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Bookings',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '4%', 'xls_width' => 35],
+                    ['label' => 'Customer', 'type' => 'text', 'width' => '12%', 'xls_width' => 130],
+                    ['label' => 'Phone', 'type' => 'text', 'width' => '9%', 'xls_width' => 90],
+                    ['label' => 'Property', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '10%', 'xls_width' => 120],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '9%', 'xls_width' => 110],
+                    ['label' => 'Area sqft', 'type' => 'text', 'width' => '7%', 'xls_width' => 70],
+                    ['label' => 'Rate (INR)', 'type' => $rateColType, 'width' => '8%', 'xls_width' => 90],
+                    ['label' => 'Sale value (INR)', 'type' => 'money', 'width' => '9%', 'xls_width' => 110],
+                    ['label' => 'Received (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Remaining (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Status', 'type' => 'text', 'width' => '7%', 'xls_width' => 70],
+                ],
+                'rows' => $bookingRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', $totalSaleValue, $totalReceived, $totalReturned, $totalRemaining, ''],
+            ],
+            [
+                'title' => 'Payment history',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '6%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '10%', 'xls_width' => 80],
+                    ['label' => 'Customer', 'type' => 'text', 'width' => '16%', 'xls_width' => 140],
+                    ['label' => 'Property', 'type' => 'text', 'width' => '12%', 'xls_width' => 100],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '10%', 'xls_width' => 80],
+                    ['label' => 'Received (INR)', 'type' => 'money', 'width' => '14%', 'xls_width' => 110],
+                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '14%', 'xls_width' => 110],
+                    ['label' => 'Notes', 'type' => 'text', 'width' => '18%', 'xls_width' => 160],
+                ],
+                'rows' => $payRows,
+                'totals' => ['', 'TOTAL', '', '', '', $payRecv, $payRet, ''],
+            ],
+        ],
+        'notes' => [
+            'System-generated booking register. Sale/received/remaining totals are the full booking history.',
+            'Payment history follows the date filter when one is set.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/bookings.php');
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -791,6 +853,7 @@ require __DIR__ . '/../includes/header.php';
     <span class="selected-count muted">0 selected</span>
     <div class="export-actions">
       <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
+      <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel" disabled>Export Excel</button>
       <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
     </div>
   </div>
