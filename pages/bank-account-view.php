@@ -29,9 +29,106 @@ $rows = $txns->fetchAll();
 
 $pageTitle = $account['account_name'];
 $pageSub = $account['bank_name'] . ' · ' . $account['company_name'];
-$pageActions =
-    '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&company_id=' . $account['company_id'])) . '">+ Add entry</a>' .
-    '<a class="btn btn-outline" href="' . e(base_url('pages/bank-accounts.php?action=edit&id=' . $id)) . '">Edit</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&company_id=' . $account['company_id'])) . '">+ Add entry</a>'
+    . '<a class="btn btn-outline" href="' . e(base_url('pages/bank-accounts.php?action=edit&id=' . $id)) . '">Edit</a>';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $stmtChrono = $pdo->prepare(
+        'SELECT t.*, cat.name AS category_name, p.name AS project_name
+         FROM transactions t
+         JOIN categories cat ON cat.id = t.category_id
+         LEFT JOIN projects p ON p.id = t.project_id
+         WHERE t.bank_account_id = ?
+         ORDER BY t.txn_date ASC, t.id ASC'
+    );
+    $stmtChrono->execute([$id]);
+    $chrono = $stmtChrono->fetchAll();
+    $opening = (float) $account['opening_balance'];
+    $running = $opening;
+    $inTotal = 0.0;
+    $outTotal = 0.0;
+    $stmtRows = [[
+        '1',
+        '',
+        'Opening balance',
+        '',
+        '',
+        null,
+        null,
+        $opening,
+    ]];
+    $n = 1;
+    foreach ($chrono as $r) {
+        $n++;
+        $isCredit = ($r['txn_type'] ?? '') === 'credit';
+        $amt = (float) $r['amount'];
+        $in = $isCredit ? $amt : null;
+        $out = $isCredit ? null : $amt;
+        if ($isCredit) {
+            $inTotal += $amt;
+            $running += $amt;
+        } else {
+            $outTotal += $amt;
+            $running -= $amt;
+        }
+        $stmtRows[] = [
+            (string) $n,
+            report_plain_date($r['txn_date'] ?? null),
+            $r['description'] ?? '',
+            $r['category_name'] ?? '',
+            $r['project_name'] ?? '',
+            $in,
+            $out,
+            $running,
+        ];
+    }
+    $maskedAc = (string) ($account['account_number'] ?? '');
+    if (strlen($maskedAc) > 4) {
+        $maskedAc = str_repeat('X', max(0, strlen($maskedAc) - 4)) . substr($maskedAc, -4);
+    }
+    report_download(post('export_action'), [
+        'filename' => 'bank_statement_' . preg_replace('/[^\w.\-]+/', '_', (string) $account['account_name']),
+        'title' => 'Bank Account Statement',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Account', (string) ($account['account_name'] ?? '')],
+            ['Bank', (string) ($account['bank_name'] ?? '')],
+            ['Company', (string) ($account['company_name'] ?? '')],
+            ['A/C no.', $maskedAc !== '' ? $maskedAc : '—'],
+            ['IFSC', (string) ($account['ifsc'] ?? '—')],
+            ['Status', ucfirst((string) ($account['status'] ?? ''))],
+        ],
+        'summary' => [
+            ['Opening balance', $opening, 'money'],
+            ['Credits in', $inTotal, 'money'],
+            ['Debits out', $outTotal, 'money'],
+            ['Closing balance', $running, 'money'],
+        ],
+        'tables' => [[
+            'title' => 'Statement of account',
+            'columns' => [
+                ['label' => 'Sr No', 'type' => 'text', 'width' => '6%', 'xls_width' => 35],
+                ['label' => 'Date', 'type' => 'text', 'width' => '10%', 'xls_width' => 80],
+                ['label' => 'Particulars', 'type' => 'text', 'width' => '22%', 'xls_width' => 180],
+                ['label' => 'Category', 'type' => 'text', 'width' => '14%', 'xls_width' => 120],
+                ['label' => 'Project', 'type' => 'text', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Credit (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Debit (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Balance (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+            ],
+            'rows' => $stmtRows,
+            'totals' => ['', 'TOTAL', '', '', '', $inTotal, $outTotal, $running],
+        ]],
+        'notes' => [
+            'System-generated bank statement. Entries are chronological with a running balance from the opening figure.',
+            'Closing balance should match the live ledger balance on this account.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/bank-account-view.php?id=' . $id);
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
