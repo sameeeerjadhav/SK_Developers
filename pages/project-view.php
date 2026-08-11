@@ -34,9 +34,149 @@ $recent = $txns->fetchAll();
 
 $pageTitle = $project['name'];
 $pageSub = ($project['company_type'] === 'main' ? 'Main company' : 'Sub company') . ' · ' . $project['company_name'];
-$pageActions =
-    '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&project_id=' . $id . '&company_id=' . $project['company_id'])) . '">+ Add entry</a>' .
-    '<a class="btn btn-outline" href="' . e(base_url('pages/projects.php?action=edit&id=' . $id)) . '">Edit</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&project_id=' . $id . '&company_id=' . $project['company_id'])) . '">+ Add entry</a>'
+    . '<a class="btn btn-outline" href="' . e(base_url('pages/projects.php?action=edit&id=' . $id)) . '">Edit</a>';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $catCols = [
+        ['label' => 'Sr No', 'type' => 'text', 'width' => '8%', 'xls_width' => 40],
+        ['label' => 'Particulars', 'type' => 'text', 'width' => '40%', 'xls_width' => 200],
+        ['label' => 'Cash (INR)', 'type' => 'money', 'width' => '17%', 'xls_width' => 110],
+        ['label' => 'Bank (INR)', 'type' => 'money', 'width' => '17%', 'xls_width' => 110],
+        ['label' => 'Total (INR)', 'type' => 'money', 'width' => '18%', 'xls_width' => 110],
+    ];
+    $mapCats = static function (array $rows): array {
+        $out = [];
+        $n = 0;
+        foreach ($rows as $row) {
+            $total = (float) $row['total'];
+            if ($total == 0.0) {
+                continue;
+            }
+            $n++;
+            $out[] = [
+                (string) $n,
+                $row['name'] ?? '',
+                (float) $row['cash_total'],
+                (float) $row['bank_total'],
+                $total,
+            ];
+        }
+        return $out;
+    };
+    $creditRows = $mapCats($credits);
+    $landRows = $mapCats($land);
+    $expenseRows = $mapCats($expenses);
+
+    $ledgerStmt = $pdo->prepare(
+        'SELECT t.*, cat.name AS category_name, cat.section, ba.account_name, ba.bank_name
+         FROM transactions t
+         JOIN categories cat ON cat.id = t.category_id
+         LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+         WHERE t.project_id = ?
+         ORDER BY t.txn_date ASC, t.id ASC'
+    );
+    $ledgerStmt->execute([$id]);
+    $ledger = $ledgerStmt->fetchAll();
+    $ledgerRows = [];
+    $creditSum = 0.0;
+    $debitSum = 0.0;
+    foreach ($ledger as $i => $r) {
+        $isCredit = ($r['txn_type'] ?? '') === 'credit';
+        $amt = (float) $r['amount'];
+        if ($isCredit) {
+            $creditSum += $amt;
+        } else {
+            $debitSum += $amt;
+        }
+        $bank = $r['account_name'] ? trim($r['account_name'] . ($r['bank_name'] ? ' - ' . $r['bank_name'] : '')) : 'Cash';
+        $ledgerRows[] = [
+            (string) ($i + 1),
+            report_plain_date($r['txn_date'] ?? null),
+            ucwords(str_replace('_', ' ', (string) ($r['section'] ?? ''))),
+            $r['category_name'] ?? '',
+            $bank,
+            $r['description'] ?? '',
+            $isCredit ? $amt : null,
+            $isCredit ? null : $amt,
+        ];
+    }
+
+    $landMeta = [];
+    if (!empty($project['deed_name'])) {
+        $landMeta[] = ['Deed', (string) $project['deed_name']];
+    }
+    if (!empty($project['party_name'])) {
+        $landMeta[] = ['Party', (string) $project['party_name']];
+    }
+    if (!empty($project['survey_no'])) {
+        $landMeta[] = ['Survey no.', (string) $project['survey_no']];
+    }
+    if ($project['area_sqft'] !== null && $project['area_sqft'] !== '') {
+        $landMeta[] = ['Area', (string) $project['area_sqft'] . ' sqft'];
+    }
+
+    report_download(post('export_action'), [
+        'filename' => 'project_' . preg_replace('/[^\w.\-]+/', '_', (string) ($project['code'] ?? $project['name'])) . '_report',
+        'title' => 'Project Report — ' . ($project['name'] ?? ''),
+        'orientation' => 'landscape',
+        'meta' => array_merge([
+            ['Project', (string) ($project['name'] ?? '')],
+            ['Code', (string) ($project['code'] ?? '—')],
+            ['Company', (string) ($project['company_name'] ?? '')],
+            ['Status', ucfirst((string) ($project['status'] ?? ''))],
+        ], $landMeta),
+        'summary' => [
+            ['Credit', $creditTotal, 'money'],
+            ['Land purchase', $landTotal, 'money'],
+            ['Expenses', $expenseTotal, 'money'],
+            ['Profit', $profit, 'money'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Credit by category',
+                'columns' => $catCols,
+                'rows' => $creditRows,
+                'totals' => $creditRows ? ['', 'TOTAL', '', '', $creditTotal] : null,
+            ],
+            [
+                'title' => 'Land purchase by category',
+                'columns' => $catCols,
+                'rows' => $landRows,
+                'totals' => $landRows ? ['', 'TOTAL', '', '', $landTotal] : null,
+            ],
+            [
+                'title' => 'Expenses by category',
+                'columns' => $catCols,
+                'rows' => $expenseRows,
+                'totals' => $expenseRows ? ['', 'TOTAL', '', '', $expenseTotal] : null,
+            ],
+            [
+                'title' => 'Project ledger',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '9%', 'xls_width' => 80],
+                    ['label' => 'Section', 'type' => 'text', 'width' => '12%', 'xls_width' => 100],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '14%', 'xls_width' => 120],
+                    ['label' => 'Account', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                    ['label' => 'Particulars', 'type' => 'text', 'width' => '18%', 'xls_width' => 160],
+                    ['label' => 'Credit (INR)', 'type' => 'money', 'width' => '14%', 'xls_width' => 110],
+                    ['label' => 'Debit (INR)', 'type' => 'money', 'width' => '14%', 'xls_width' => 110],
+                ],
+                'rows' => $ledgerRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', $creditSum, $debitSum],
+            ],
+        ],
+        'notes' => [
+            'System-generated project report. Category tables omit zero-value rows. Ledger is the full project history.',
+            'Profit = credit − land purchase − expenses.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/project-view.php?id=' . $id);
+}
 
 require __DIR__ . '/../includes/header.php';
 
