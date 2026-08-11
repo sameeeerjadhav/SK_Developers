@@ -242,7 +242,8 @@ if ($action === 'add' || $action === 'edit') {
 
 $pageTitle = 'Partners';
 $pageSub = 'Partner directory, capital and advances.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/partners.php?action=add')) . '">+ Add partner</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/partners.php?action=add')) . '">+ Add partner</a>';
 $partners = $pdo->query('SELECT pr.*, c.name AS company_name FROM partners pr LEFT JOIN companies c ON c.id = pr.company_id ORDER BY pr.name')->fetchAll();
 
 $partnerTxns = [];
@@ -265,6 +266,94 @@ if ($partnerIds) {
 
 $totalCapital = (float) $pdo->query('SELECT COALESCE(SUM(invested_amount),0) FROM partners')->fetchColumn();
 $totalAdvance = (float) $pdo->query('SELECT COALESCE(SUM(advance_amount),0) FROM partners')->fetchColumn();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $dirRows = [];
+    foreach ($partners as $i => $p) {
+        $dirRows[] = [
+            (string) ($i + 1),
+            $p['name'] ?? '',
+            $p['company_name'] ?? '',
+            $p['phone'] ?? '',
+            $p['email'] ?? '',
+            $p['share_percent'] !== null ? (string) $p['share_percent'] : '',
+            (float) $p['invested_amount'],
+            (float) $p['advance_amount'],
+        ];
+    }
+    $ledgerRows = [];
+    $n = 0;
+    foreach ($partners as $p) {
+        foreach ($partnerTxns[(int) $p['id']] ?? [] as $t) {
+            $n++;
+            $isCredit = ($t['txn_type'] ?? '') === 'credit';
+            $amt = (float) $t['amount'];
+            $bank = $t['account_name'] ? trim($t['account_name'] . ($t['bank_name'] ? ' - ' . $t['bank_name'] : '')) : 'Cash';
+            $ledgerRows[] = [
+                (string) $n,
+                report_plain_date($t['txn_date'] ?? null),
+                $p['name'] ?? '',
+                $t['category_name'] ?? '',
+                $isCredit ? 'Credit' : 'Debit',
+                $bank,
+                $t['description'] ?? '',
+                $isCredit ? $amt : null,
+                $isCredit ? null : $amt,
+            ];
+        }
+    }
+    report_download(post('export_action'), [
+        'filename' => 'partners_register',
+        'title' => 'Partner Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Partners', (string) count($partners)],
+        ],
+        'summary' => [
+            ['Total capital', $totalCapital, 'money'],
+            ['Total advances', $totalAdvance, 'money'],
+            ['Partners', count($partners), 'int'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Partner directory',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '6%', 'xls_width' => 35],
+                    ['label' => 'Name', 'type' => 'text', 'width' => '16%', 'xls_width' => 140],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '16%', 'xls_width' => 140],
+                    ['label' => 'Phone', 'type' => 'text', 'width' => '12%', 'xls_width' => 100],
+                    ['label' => 'Email', 'type' => 'text', 'width' => '16%', 'xls_width' => 140],
+                    ['label' => 'Share %', 'type' => 'text', 'width' => '8%', 'xls_width' => 60],
+                    ['label' => 'Capital (INR)', 'type' => 'money', 'width' => '13%', 'xls_width' => 110],
+                    ['label' => 'Advance (INR)', 'type' => 'money', 'width' => '13%', 'xls_width' => 110],
+                ],
+                'rows' => $dirRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', $totalCapital, $totalAdvance],
+            ],
+            [
+                'title' => 'Partner ledger',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '10%', 'xls_width' => 80],
+                    ['label' => 'Partner', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '16%', 'xls_width' => 130],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '8%', 'xls_width' => 60],
+                    ['label' => 'Account', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                    ['label' => 'Particulars', 'type' => 'text', 'width' => '13%', 'xls_width' => 140],
+                    ['label' => 'Credit (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
+                    ['label' => 'Debit (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
+                ],
+                'rows' => $ledgerRows,
+            ],
+        ],
+        'notes' => [
+            'System-generated partner register. Capital and advance are the current balances on each partner.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/partners.php');
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
