@@ -163,6 +163,195 @@ function render_repayment_loans(PDO $pdo, array $loans): void
     <?php
 }
 
+/** Real Dompdf download — same register style as loan-view. Never browser print. */
+function loan_repayments_output_pdf(
+    array $rows,
+    array $meta,
+    float $total,
+    float $principal,
+    float $interest,
+    array $byLender,
+    string $scopeNote
+): void {
+    if (function_exists('ini_set')) {
+        @ini_set('memory_limit', '256M');
+    }
+    $generatedAt = date('d-m-Y, h:i A');
+    $generatedBy = current_user()['name'] ?? '';
+    ob_start();
+    ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { margin: 12mm 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: DejaVu Sans, sans-serif; font-size: 8pt; color: #0b1f1c; margin: 0; line-height: 1.3; }
+  .brand { font-size: 15pt; font-weight: 700; color: #0f766e; margin: 0 0 2px; }
+  .doc-title { font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 4px; }
+  .meta { font-size: 8pt; color: #5b6f6b; }
+  .header-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  .header-table td { vertical-align: top; padding: 0; }
+  .header-table td.right { text-align: right; }
+  .summary { width: 100%; border-collapse: collapse; margin: 6px 0 10px; border: 1px solid #cfe3df; }
+  .summary td { width: 25%; padding: 7px 9px; border-right: 1px solid #cfe3df; background: #f7fcfb; }
+  .summary td:last-child { border-right: none; }
+  .summary .label { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.05em; color: #5b6f6b; font-weight: 700; margin-bottom: 2px; }
+  .summary .value { font-size: 10.5pt; font-weight: 700; }
+  .ok { color: #047857; }
+  .bad { color: #b91c1c; }
+  h3 { font-size: 9.5pt; margin: 12px 0 5px; color: #0f766e; border-bottom: 1px solid #cfe3df; padding-bottom: 3px; }
+  table.data { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7.5pt; }
+  table.data th, table.data td { border: 1px solid #d7e6e2; padding: 3px 4px; vertical-align: top; }
+  table.data th { background: #eef8f5; font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; }
+  table.data td.num, table.data th.num { text-align: right; white-space: nowrap; }
+  table.data thead { display: table-header-group; }
+  table.data tr { page-break-inside: avoid; }
+  table.data tfoot td { background: #eef8f5; font-weight: 700; border-top: 2px solid #9ec5bd; }
+  .filters { width: 100%; border-collapse: collapse; margin-bottom: 6px; font-size: 8pt; }
+  .filters td { padding: 1px 8px 1px 0; }
+  .filters .k { color: #5b6f6b; width: 16%; }
+  .footnote { margin-top: 12px; padding-top: 8px; border-top: 1px solid #cfe3df; font-size: 7pt; color: #5b6f6b; }
+  .footnote p { margin: 2px 0; }
+</style>
+</head>
+<body>
+  <table class="header-table">
+    <tr>
+      <td>
+        <div class="brand">Sai Kuber Developers</div>
+        <div class="doc-title">Loan Repayment Register</div>
+      </td>
+      <td class="right meta">
+        Generated <?= pdf_e($generatedAt) ?><br>
+        By <?= pdf_e($generatedBy) ?>
+      </td>
+    </tr>
+  </table>
+  <table class="filters">
+    <?php foreach ($meta as $row): ?>
+      <tr><td class="k"><?= pdf_e($row[0] ?? '') ?></td><td><?= pdf_e($row[1] ?? '') ?></td></tr>
+    <?php endforeach; ?>
+  </table>
+  <table class="summary">
+    <tr>
+      <td>
+        <div class="label">Total repaid</div>
+        <div class="value"><?= pdf_e(money($total)) ?></div>
+      </td>
+      <td>
+        <div class="label">Principal</div>
+        <div class="value ok"><?= pdf_e(money($principal)) ?></div>
+      </td>
+      <td>
+        <div class="label">Interest</div>
+        <div class="value bad"><?= pdf_e(money($interest)) ?></div>
+      </td>
+      <td>
+        <div class="label">Entries</div>
+        <div class="value"><?= (int) count($rows) ?></div>
+      </td>
+    </tr>
+  </table>
+
+  <h3>Totals by lender</h3>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:6%">#</th>
+        <th style="width:38%">Lender / Bank</th>
+        <th class="num" style="width:10%">Entries</th>
+        <th class="num" style="width:15%">Amount</th>
+        <th class="num" style="width:15%">Principal</th>
+        <th class="num" style="width:16%">Interest</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php $n = 0; foreach ($byLender as $name => $info): $n++; ?>
+      <tr>
+        <td><?= $n ?></td>
+        <td><?= pdf_e((string) $name) ?></td>
+        <td class="num"><?= (int) $info['count'] ?></td>
+        <td class="num"><?= pdf_e(indian_number_format((float) $info['total'], 2)) ?></td>
+        <td class="num ok"><?= pdf_e(indian_number_format((float) $info['principal'], 2)) ?></td>
+        <td class="num bad"><?= pdf_e(indian_number_format((float) $info['interest'], 2)) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2">TOTAL</td>
+        <td class="num"><?= count($rows) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($total, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($principal, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($interest, 2)) ?></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <h3>Repayment register (<?= count($rows) ?>)</h3>
+  <table class="data">
+    <thead>
+      <tr>
+        <th style="width:4%">#</th>
+        <th style="width:8%">Date</th>
+        <th style="width:18%">Lender / Bank</th>
+        <th style="width:14%">Company</th>
+        <th style="width:14%">Borrower</th>
+        <th style="width:12%">Account</th>
+        <th class="num" style="width:10%">Amount</th>
+        <th class="num" style="width:10%">Principal</th>
+        <th class="num" style="width:10%">Interest</th>
+      </tr>
+    </thead>
+    <tbody>
+      <?php foreach ($rows as $i => $r):
+          $account = trim((string) ($r['account_name'] ?? ''));
+          if ($account === '') {
+              $account = 'Cash';
+          }
+      ?>
+      <tr>
+        <td><?= $i + 1 ?></td>
+        <td><?= pdf_e(report_plain_date($r['payment_date'] ?? null)) ?></td>
+        <td><?= pdf_e((string) ($r['lender_name'] ?? '')) ?></td>
+        <td><?= pdf_e((string) ($r['company_name'] ?? '')) ?></td>
+        <td><?= pdf_e((string) ($r['borrower_name'] ?: '—')) ?></td>
+        <td><?= pdf_e($account) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format((float) $r['amount'], 2)) ?></td>
+        <td class="num ok"><?= pdf_e(indian_number_format((float) $r['principal_amount'], 2)) ?></td>
+        <td class="num bad"><?= pdf_e(indian_number_format((float) $r['interest_amount'], 2)) ?></td>
+      </tr>
+      <?php endforeach; ?>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="6">TOTAL</td>
+        <td class="num"><?= pdf_e(indian_number_format($total, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($principal, 2)) ?></td>
+        <td class="num"><?= pdf_e(indian_number_format($interest, 2)) ?></td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="footnote">
+    <p><?= pdf_e($scopeNote) ?></p>
+    <p>System-generated repayment register. Amount = principal + interest. Landscape A4 — not a print of the screen.</p>
+    <p>Confidential — internal use only.</p>
+  </div>
+</body>
+</html>
+    <?php
+    $html = ob_get_clean();
+    $filename = 'loan_repayments_register_' . date('Ymd_His') . '.pdf';
+    try {
+        pdf_download($html, $filename, 'landscape', 'A4');
+    } catch (Throwable $e) {
+        flash('error', 'PDF generation failed: ' . $e->getMessage());
+        redirect('pages/loan-repayments.php');
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $postAction = post('action', '');
@@ -392,7 +581,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         $lenderRows[] = [(string) $n, $name, $info['count'], $info['total'], $info['principal'], $info['interest']];
     }
 
-    report_download(post('export_action'), [
+    $format = post('export_action');
+    if ($format === 'pdf') {
+        loan_repayments_output_pdf(
+            $exportRows,
+            $meta,
+            $exportTotal,
+            $exportPrincipal,
+            $exportInterest,
+            $byLender,
+            $scopeNote
+        );
+    }
+
+    report_download($format, [
         'filename' => 'loan_repayments_register',
         'title' => 'Loan Repayment Register',
         'orientation' => 'landscape',
