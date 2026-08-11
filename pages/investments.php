@@ -32,6 +32,128 @@ function group_investment_rows_by_company(array $rows): array
     return $groups;
 }
 
+/** Formal investment register payload — not a copy of the on-screen drill-down. */
+function investment_register_report(array $exportRows, array $meta, string $scopeNote): array
+{
+    $exportIn = 0.0;
+    $exportOut = 0.0;
+    $exportInterest = 0.0;
+    $ledgerRows = [];
+    $segments = [
+        'Fixed' => ['count' => 0, 'in' => 0.0, 'out' => 0.0, 'interest' => 0.0],
+        'Regular' => ['count' => 0, 'in' => 0.0, 'out' => 0.0, 'interest' => 0.0],
+    ];
+    foreach ($exportRows as $i => $r) {
+        $isCredit = ($r['txn_type'] ?? '') === 'credit';
+        $amt = (float) $r['amount'];
+        $interest = $r['interest_amount'] !== null && $r['interest_amount'] !== '' ? (float) $r['interest_amount'] : null;
+        if ($isCredit) {
+            $exportIn += $amt;
+        } else {
+            $exportOut += $amt;
+        }
+        if ($interest !== null) {
+            $exportInterest += $interest;
+        }
+        $segment = investment_segment_label((string) ($r['category_slug'] ?? ''));
+        if (!isset($segments[$segment])) {
+            $segments[$segment] = ['count' => 0, 'in' => 0.0, 'out' => 0.0, 'interest' => 0.0];
+        }
+        $segments[$segment]['count']++;
+        $segments[$segment]['in'] += $isCredit ? $amt : 0;
+        $segments[$segment]['out'] += $isCredit ? 0 : $amt;
+        $segments[$segment]['interest'] += $interest ?? 0;
+        $bank = $r['account_name'] ? trim($r['account_name'] . ($r['bank_name'] ? ' - ' . $r['bank_name'] : '')) : 'Cash';
+        $ledgerRows[] = [
+            (string) ($i + 1),
+            report_plain_date($r['txn_date'] ?? null),
+            $r['investor_name'] ?? '',
+            $segment,
+            $r['company_name'] ?? '',
+            $r['project_name'] ?? '',
+            $r['category_name'] ?? '',
+            $isCredit ? 'Invested' : 'Withdrawn',
+            $bank,
+            $r['reference_no'] ?? '',
+            $r['description'] ?? '',
+            $isCredit ? $amt : null,
+            $isCredit ? null : $amt,
+            $interest,
+        ];
+    }
+    $segRows = [];
+    $n = 0;
+    foreach ($segments as $name => $info) {
+        if ($info['count'] === 0) {
+            continue;
+        }
+        $n++;
+        $segRows[] = [
+            (string) $n,
+            $name,
+            $info['count'],
+            $info['in'],
+            $info['out'],
+            $info['interest'],
+            $info['in'] - $info['out'],
+        ];
+    }
+    return [
+        'filename' => 'investment_register',
+        'title' => 'Investment Register',
+        'orientation' => 'landscape',
+        'meta' => $meta,
+        'summary' => [
+            ['Total invested', $exportIn, 'money'],
+            ['Total withdrawn', $exportOut, 'money'],
+            ['Interest', $exportInterest, 'money'],
+            ['Net investment', $exportIn - $exportOut, 'money'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Investment ledger',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '4%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+                    ['label' => 'Investor', 'type' => 'text', 'width' => '11%', 'xls_width' => 120],
+                    ['label' => 'Segment', 'type' => 'text', 'width' => '7%', 'xls_width' => 70],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '10%', 'xls_width' => 120],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '9%', 'xls_width' => 110],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '9%', 'xls_width' => 110],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '8%', 'xls_width' => 70],
+                    ['label' => 'Account', 'type' => 'text', 'width' => '9%', 'xls_width' => 120],
+                    ['label' => 'Ref', 'type' => 'text', 'width' => '6%', 'xls_width' => 70],
+                    ['label' => 'Particulars', 'type' => 'text', 'width' => '9%', 'xls_width' => 140],
+                    ['label' => 'Invested (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Withdrawn (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Interest (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
+                ],
+                'rows' => $ledgerRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', '', '', '', $exportIn, $exportOut, $exportInterest],
+            ],
+            [
+                'title' => 'Segment totals',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '8%', 'xls_width' => 40],
+                    ['label' => 'Segment', 'type' => 'text', 'width' => '16%', 'xls_width' => 90],
+                    ['label' => 'Entries', 'type' => 'int', 'width' => '12%', 'xls_width' => 70],
+                    ['label' => 'Invested (INR)', 'type' => 'money', 'width' => '16%', 'xls_width' => 110],
+                    ['label' => 'Withdrawn (INR)', 'type' => 'money', 'width' => '16%', 'xls_width' => 110],
+                    ['label' => 'Interest (INR)', 'type' => 'money', 'width' => '16%', 'xls_width' => 110],
+                    ['label' => 'Net (INR)', 'type' => 'money', 'width' => '16%', 'xls_width' => 110],
+                ],
+                'rows' => $segRows,
+                'totals' => ['', 'TOTAL', count($exportRows), $exportIn, $exportOut, $exportInterest, $exportIn - $exportOut],
+            ],
+        ],
+        'notes' => [
+            $scopeNote,
+            'System-generated investment register. Fixed = long-term capital; Regular = daily/monthly movement.',
+            'Confidential — internal use only.',
+        ],
+    ];
+}
+
 /** Renders the company -> transaction -> detail drill-down table for one section. */
 function render_investment_companies(array $companies, array $attachmentsByTxn, string $idPrefix): void
 {
@@ -159,167 +281,6 @@ function render_investment_companies(array $companies, array $attachmentsByTxn, 
     <?php
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'pdf'], true)) {
-    verify_csrf();
-    $exportAction = post('export_action');
-    $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['txn_ids'] ?? []), fn($id) => $id > 0)));
-
-    if (!$selectedIds) {
-        flash('error', 'Select at least one transaction to export.');
-        redirect('pages/investments.php');
-    }
-
-    $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
-    $expStmt = $pdo->prepare(
-        "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.slug AS category_slug,
-                ba.account_name, ba.bank_name, u.name AS created_by_name, inv.name AS investor_name
-         FROM transactions t
-         JOIN categories cat ON cat.id = t.category_id
-         JOIN companies c ON c.id = t.company_id
-         LEFT JOIN projects p ON p.id = t.project_id
-         LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
-         LEFT JOIN users u ON u.id = t.created_by
-         LEFT JOIN investors inv ON inv.id = t.investor_id
-         WHERE t.id IN ($placeholders) AND " . INVESTMENT_CATEGORY_SQL . "
-         ORDER BY t.txn_date DESC, t.id DESC"
-    );
-    $expStmt->execute($selectedIds);
-    $exportRows = $expStmt->fetchAll();
-
-    if (!$exportRows) {
-        flash('error', 'Selected transactions were not found.');
-        redirect('pages/investments.php');
-    }
-
-    $exportIn = array_sum(array_map(fn($r) => $r['txn_type'] === 'credit' ? (float) $r['amount'] : 0, $exportRows));
-    $exportOut = array_sum(array_map(fn($r) => $r['txn_type'] === 'debit' ? (float) $r['amount'] : 0, $exportRows));
-
-    if ($exportAction === 'csv') {
-        $filename = 'investments_' . date('Ymd_His') . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        $out = fopen('php://output', 'w');
-        fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM so ₹ and names open correctly in Excel
-        fputcsv($out, ['Date', 'Investor', 'Segment', 'Company', 'Project', 'Type', 'Category', 'Amount', 'Interest', 'Reference No', 'Bank Account', 'Recorded By', 'Description']);
-        foreach ($exportRows as $r) {
-            fputcsv($out, [
-                $r['txn_date'],
-                $r['investor_name'] ?? '',
-                investment_segment_label($r['category_slug']),
-                $r['company_name'],
-                $r['project_name'] ?? '',
-                ucfirst($r['txn_type']),
-                $r['category_name'],
-                number_format((float) $r['amount'], 2, '.', ''),
-                $r['interest_amount'] !== null ? number_format((float) $r['interest_amount'], 2, '.', '') : '',
-                $r['reference_no'] ?? '',
-                $r['account_name'] ? ($r['account_name'] . ' - ' . $r['bank_name']) : '',
-                $r['created_by_name'] ?? '',
-                $r['description'] ?? '',
-            ]);
-        }
-        fputcsv($out, []);
-        fputcsv($out, ['', '', '', '', '', '', '', 'Total invested', number_format($exportIn, 2, '.', '')]);
-        fputcsv($out, ['', '', '', '', '', '', '', 'Total withdrawn', number_format($exportOut, 2, '.', '')]);
-        fputcsv($out, ['', '', '', '', '', '', '', 'Net', number_format($exportIn - $exportOut, 2, '.', '')]);
-        fclose($out);
-        exit;
-    }
-
-    // PDF: render a formal print-ready report sheet — user saves via the browser's Print dialog, same as Reports.
-    $entryWord = count($exportRows) === 1 ? 'entry' : 'entries';
-    $datesCovered = array_unique(array_map(fn($r) => $r['txn_date'], $exportRows));
-    sort($datesCovered);
-    $rangeLabel = count($datesCovered) > 1
-        ? format_date($datesCovered[0]) . ' – ' . format_date(end($datesCovered))
-        : format_date($datesCovered[0] ?? null);
-
-    $pageTitle = 'Investment export';
-    $pageSub = count($exportRows) . ' selected ' . $entryWord . '.';
-    $pageActions = '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>';
-    require __DIR__ . '/../includes/header.php';
-    ?>
-    <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
-    <div class="print-sheet card">
-      <div class="print-header report-header">
-        <div>
-          <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
-          <div class="report-doc-title">Investment Report</div>
-          <div class="print-meta report-meta" style="text-align:left"><?= count($exportRows) ?> <?= e($entryWord) ?> · <?= e($rangeLabel) ?></div>
-        </div>
-        <div class="print-meta report-meta">Generated <?= e(date('d-m-Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
-      </div>
-
-      <div class="report-summary">
-        <div>
-          <div class="label">Total invested</div>
-          <div class="value text-success"><?= money($exportIn) ?></div>
-        </div>
-        <div>
-          <div class="label">Total withdrawn</div>
-          <div class="value text-danger"><?= money($exportOut) ?></div>
-        </div>
-        <div>
-          <div class="label">Net investment</div>
-          <div class="value <?= ($exportIn - $exportOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($exportIn - $exportOut) ?></div>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table class="data">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Date</th>
-              <th>Investor</th>
-              <th>Segment</th>
-              <th>Company</th>
-              <th>Project</th>
-              <th>Category</th>
-              <th>Description</th>
-              <th class="num">Invested (₹)</th>
-              <th class="num">Withdrawn (₹)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php foreach ($exportRows as $i => $r): ?>
-              <tr>
-                <td><?= $i + 1 ?></td>
-                <td><?= e(format_date($r['txn_date'])) ?></td>
-                <td><?= e($r['investor_name'] ?? '—') ?></td>
-                <td><?= e(investment_segment_label($r['category_slug'])) ?></td>
-                <td><?= e($r['company_name']) ?></td>
-                <td><?= e($r['project_name'] ?? '—') ?></td>
-                <td><?= e($r['category_name']) ?></td>
-                <td><?= e($r['description'] ?: '—') ?></td>
-                <td class="num"><?= $r['txn_type'] === 'credit' ? indian_number_format((float) $r['amount'], 2) : '—' ?></td>
-                <td class="num"><?= $r['txn_type'] === 'debit' ? indian_number_format((float) $r['amount'], 2) : '—' ?></td>
-              </tr>
-            <?php endforeach; ?>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="8">TOTAL</td>
-              <td class="num"><?= indian_number_format((float) $exportIn, 2) ?></td>
-              <td class="num"><?= indian_number_format((float) $exportOut, 2) ?></td>
-            </tr>
-            <tr>
-              <td colspan="8">NET INVESTMENT</td>
-              <td class="num" colspan="2"><?= money($exportIn - $exportOut) ?></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      <div class="report-footnote">
-        <p>This is a system-generated report from the Sai Kuber Developers finance system. Figures reflect the transactions selected at export time.</p>
-        <p>Confidential — internal use only.</p>
-      </div>
-    </div>
-    <?php
-    require __DIR__ . '/../includes/footer.php';
-    exit;
-}
 
 $action = get('action', 'list');
 $allowedInvestmentSlugs = array_merge(INVESTMENT_FIXED_SLUGS, INVESTMENT_REGULAR_SLUGS);
@@ -625,7 +586,8 @@ $filterInvestor = (int) get('investor_id', 0);
 
 $pageTitle = 'Investment';
 $pageSub = 'Fixed, long-term capital and regular (daily/monthly) investment movement — by investor and company.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/investments.php?action=add')) . '">+ Add investment</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/investments.php?action=add')) . '">+ Add investment</a>';
 
 $sql = "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.slug AS category_slug,
                ba.account_name, ba.bank_name, u.name AS created_by_name, inv.name AS investor_name, inv.phone AS investor_phone
@@ -679,6 +641,62 @@ $regularInterest = array_sum(array_map(fn($r) => (float) ($r['interest_amount'] 
 
 $fixedCompanies = group_investment_rows_by_company($fixedRows);
 $regularCompanies = group_investment_rows_by_company($regularRows);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['txn_ids'] ?? []), fn($id) => $id > 0)));
+    $companyName = 'All companies';
+    if ($filterCompany) {
+        $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
+        $cn->execute([$filterCompany]);
+        $companyName = (string) ($cn->fetchColumn() ?: 'Company #' . $filterCompany);
+    }
+    $investorName = 'All investors';
+    if ($filterInvestor) {
+        $in = $pdo->prepare('SELECT name FROM investors WHERE id = ?');
+        $in->execute([$filterInvestor]);
+        $investorName = (string) ($in->fetchColumn() ?: 'Investor #' . $filterInvestor);
+    }
+    $period = report_display_period($filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, $month, $year);
+    if ($selectedIds) {
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        $expStmt = $pdo->prepare(
+            "SELECT t.*, c.name AS company_name, p.name AS project_name, cat.name AS category_name, cat.slug AS category_slug,
+                    ba.account_name, ba.bank_name, u.name AS created_by_name, inv.name AS investor_name
+             FROM transactions t
+             JOIN categories cat ON cat.id = t.category_id
+             JOIN companies c ON c.id = t.company_id
+             LEFT JOIN projects p ON p.id = t.project_id
+             LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+             LEFT JOIN users u ON u.id = t.created_by
+             LEFT JOIN investors inv ON inv.id = t.investor_id
+             WHERE t.id IN ($placeholders) AND " . INVESTMENT_CATEGORY_SQL . "
+             ORDER BY t.txn_date ASC, t.id ASC"
+        );
+        $expStmt->execute($selectedIds);
+        $exportRows = $expStmt->fetchAll();
+        if (!$exportRows) {
+            flash('error', 'Selected transactions were not found.');
+            redirect('pages/investments.php');
+        }
+        $scopeNote = 'Figures reflect the ' . count($exportRows) . ' selected entries at export time.';
+        $meta = [
+            ['Scope', 'Selected entries'],
+            ['Entries', (string) count($exportRows)],
+        ];
+    } else {
+        $exportRows = $rows;
+        $scopeNote = 'Figures match the current filters at export time.';
+        $meta = [
+            ['Period', $period],
+            ['Company', $companyName],
+            ['Investor', $investorName],
+            ['Entries', (string) count($exportRows)],
+        ];
+    }
+    report_download(post('export_action'), investment_register_report($exportRows, $meta, $scopeNote));
+    redirect('pages/investments.php');
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -749,6 +767,7 @@ require __DIR__ . '/../includes/header.php';
       <span class="selected-count muted">0 selected</span>
       <div class="export-actions">
         <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
+        <button class="btn btn-outline btn-sm export-excel-btn" type="submit" name="export_action" value="excel" disabled>Export Excel</button>
         <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
       </div>
     </div>

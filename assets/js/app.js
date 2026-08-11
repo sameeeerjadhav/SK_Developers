@@ -216,8 +216,7 @@
   document.querySelectorAll('form.bulk-export-form').forEach(function (exportForm) {
     var selectAll = exportForm.querySelector('.select-all-toggle');
     var selectedCount = exportForm.querySelector('.selected-count');
-    var exportCsvBtn = exportForm.querySelector('.export-csv-btn');
-    var exportPdfBtn = exportForm.querySelector('.export-pdf-btn');
+    var exportBtns = exportForm.querySelectorAll('[name="export_action"]');
 
     var getCheckboxes = function () {
       return Array.prototype.filter.call(exportForm.elements, function (el) {
@@ -229,8 +228,7 @@
       var boxes = getCheckboxes();
       var checked = boxes.filter(function (b) { return b.checked; });
       if (selectedCount) selectedCount.textContent = checked.length + ' selected';
-      if (exportCsvBtn) exportCsvBtn.disabled = checked.length === 0;
-      if (exportPdfBtn) exportPdfBtn.disabled = checked.length === 0;
+      exportBtns.forEach(function (btn) { btn.disabled = checked.length === 0; });
       if (selectAll) {
         selectAll.checked = boxes.length > 0 && checked.length === boxes.length;
         selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
