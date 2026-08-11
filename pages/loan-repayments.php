@@ -331,6 +331,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ];
     }
 
+    usort($exportRows, static function ($a, $b) {
+        $da = (string) ($a['payment_date'] ?? '');
+        $db = (string) ($b['payment_date'] ?? '');
+        if ($da === $db) {
+            return ((int) ($a['id'] ?? 0)) <=> ((int) ($b['id'] ?? 0));
+        }
+        return $da <=> $db;
+    });
+    $dates = array_values(array_filter(array_map(static fn($r) => (string) ($r['payment_date'] ?? ''), $exportRows)));
+    if ($dates) {
+        $meta[] = ['Date range', report_plain_date($dates[0]) . ' to ' . report_plain_date($dates[count($dates) - 1])];
+    }
+
     $exportTotal = 0.0;
     $exportPrincipal = 0.0;
     $exportInterest = 0.0;
@@ -342,14 +355,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         $exportTotal += $amt;
         $exportPrincipal += $prin;
         $exportInterest += $int;
-        $bank = $r['account_name'] ? trim($r['account_name'] . ($r['bank_name'] ? ' - ' . $r['bank_name'] : '')) : 'Cash';
+        $account = trim((string) ($r['account_name'] ?? ''));
+        if ($account === '') {
+            $account = 'Cash';
+        }
         $repayRows[] = [
             (string) ($i + 1),
             report_plain_date($r['payment_date'] ?? null),
             $r['lender_name'] ?? '',
             $r['company_name'] ?? '',
-            $bank,
-            $r['borrower_name'] ?? '',
+            $r['borrower_name'] ?: '—',
+            $account,
             $amt,
             $prin,
             $int,
@@ -389,18 +405,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ],
         'tables' => [
             [
-                'title' => 'Repayment entries',
+                'title' => 'Repayment register',
                 'columns' => [
-                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
-                    ['label' => 'Date', 'type' => 'text', 'width' => '9%', 'xls_width' => 80],
-                    ['label' => 'Lender / Bank', 'type' => 'text', 'width' => '14%', 'xls_width' => 140],
-                    ['label' => 'Company', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                    ['label' => 'Sr', 'type' => 'text', 'width' => '4%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+                    ['label' => 'Lender / Bank', 'type' => 'text', 'width' => '18%', 'xls_width' => 160],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                    ['label' => 'Borrower', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
                     ['label' => 'Account', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
-                    ['label' => 'Borrower', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
                     ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
                     ['label' => 'Principal (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
                     ['label' => 'Interest (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
-                    ['label' => 'Notes', 'type' => 'text', 'width' => '6%', 'xls_width' => 120],
+                    ['label' => 'Notes', 'type' => 'text', 'xls_width' => 140, 'pdf' => false],
                 ],
                 'rows' => $repayRows,
                 'totals' => ['', 'TOTAL', '', '', '', '', $exportTotal, $exportPrincipal, $exportInterest, ''],
@@ -496,9 +512,9 @@ require __DIR__ . '/../includes/header.php';
       </label>
       <span class="selected-count muted">0 selected</span>
       <div class="export-actions">
-        <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
-        <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel" disabled>Export Excel</button>
-        <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
+        <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Download CSV</button>
+        <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel" disabled>Download Excel</button>
+        <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Download PDF</button>
       </div>
     </div>
   </form>

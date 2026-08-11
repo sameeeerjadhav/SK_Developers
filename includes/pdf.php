@@ -25,6 +25,9 @@ function pdf_autoload(): void
 function pdf_download(string $html, string $filename, string $orientation = 'landscape', string $paper = 'A4'): void
 {
     pdf_autoload();
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(120);
+    }
 
     $options = new \Dompdf\Options();
     $options->set('isHtml5ParserEnabled', true);

@@ -319,30 +319,33 @@ function report_pdf_stream(string $filename, array $report): void
 <head>
 <meta charset="UTF-8">
 <style>
-  @page { margin: 14mm 12mm; }
+  @page { margin: 12mm 10mm; }
   * { box-sizing: border-box; }
-  body { font-family: DejaVu Sans, sans-serif; font-size: 9pt; color: #0b1f1c; margin: 0; line-height: 1.35; }
-  .brand { font-size: 15pt; font-weight: 700; color: #0f766e; margin: 0 0 2px; }
-  .doc-title { font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; }
+  body { font-family: DejaVu Sans, sans-serif; font-size: 8.5pt; color: #0b1f1c; margin: 0; line-height: 1.3; }
+  .brand { font-size: 14pt; font-weight: 700; color: #0f766e; margin: 0 0 2px; }
+  .doc-title { font-size: 10.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; }
   .meta { font-size: 8pt; color: #5b6f6b; }
-  .header-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  .header-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
   .header-table td { vertical-align: top; padding: 0; }
   .header-table td.right { text-align: right; }
-  .summary { width: 100%; border-collapse: collapse; margin: 4px 0 12px; border: 1px solid #cfe3df; }
-  .summary td { padding: 8px 10px; border-right: 1px solid #cfe3df; background: #f7fcfb; vertical-align: top; }
+  .summary { width: 100%; border-collapse: collapse; margin: 4px 0 10px; border: 1px solid #cfe3df; }
+  .summary td { padding: 7px 9px; border-right: 1px solid #cfe3df; background: #f7fcfb; vertical-align: top; }
   .summary td:last-child { border-right: none; }
-  .summary .label { font-size: 7pt; text-transform: uppercase; letter-spacing: 0.05em; color: #5b6f6b; font-weight: 700; margin-bottom: 3px; }
-  .summary .value { font-size: 11pt; font-weight: 700; }
-  h3 { font-size: 10pt; margin: 14px 0 6px; color: #0f766e; border-bottom: 1px solid #cfe3df; padding-bottom: 3px; }
-  table.data { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8pt; }
-  table.data th, table.data td { border: 1px solid #d7e6e2; padding: 4px 5px; vertical-align: top; word-wrap: break-word; }
-  table.data th { background: #eef8f5; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; }
-  table.data td.num, table.data th.num { text-align: right; }
+  .summary .label { font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.05em; color: #5b6f6b; font-weight: 700; margin-bottom: 2px; }
+  .summary .value { font-size: 10pt; font-weight: 700; }
+  h3 { font-size: 9.5pt; margin: 12px 0 5px; color: #0f766e; border-bottom: 1px solid #cfe3df; padding-bottom: 3px; }
+  table.data { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7.5pt; }
+  table.data th, table.data td { border: 1px solid #d7e6e2; padding: 3px 4px; vertical-align: top; }
+  table.data th { background: #eef8f5; font-size: 6.5pt; text-transform: uppercase; letter-spacing: 0.03em; text-align: left; }
+  table.data td.num, table.data th.num { text-align: right; white-space: nowrap; }
+  table.data thead { display: table-header-group; }
+  table.data tfoot { display: table-row-group; }
+  table.data tr { page-break-inside: avoid; }
   table.data tfoot td { background: #eef8f5; font-weight: 700; border-top: 2px solid #9ec5bd; }
   .filters { width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 8pt; }
   .filters td { padding: 2px 8px 2px 0; }
-  .filters .k { color: #5b6f6b; width: 22%; }
-  .footnote { margin-top: 14px; padding-top: 8px; border-top: 1px solid #cfe3df; font-size: 7.5pt; color: #5b6f6b; }
+  .filters .k { color: #5b6f6b; width: 18%; }
+  .footnote { margin-top: 12px; padding-top: 8px; border-top: 1px solid #cfe3df; font-size: 7pt; color: #5b6f6b; }
   .footnote p { margin: 2px 0; }
 </style>
 </head>
@@ -387,12 +390,20 @@ function report_pdf_stream(string $filename, array $report): void
 
   <?php foreach ($report['tables'] ?? [] as $table):
       $columns = $table['columns'] ?? [];
+      $pdfCols = [];
+      foreach ($columns as $i => $col) {
+          if (($col['pdf'] ?? true) === false) {
+              continue;
+          }
+          $pdfCols[] = ['i' => $i, 'col' => $col];
+      }
   ?>
     <h3><?= pdf_e($table['title'] ?? 'Data') ?></h3>
     <table class="data">
       <thead>
         <tr>
-          <?php foreach ($columns as $col):
+          <?php foreach ($pdfCols as $item):
+              $col = $item['col'];
               $isNum = in_array($col['type'] ?? 'text', ['money', 'int'], true);
               $w = !empty($col['width']) ? ' style="width:' . pdf_e($col['width']) . '"' : '';
           ?>
@@ -403,11 +414,15 @@ function report_pdf_stream(string $filename, array $report): void
       <tbody>
         <?php foreach ($table['rows'] ?? [] as $row): ?>
           <tr>
-            <?php foreach ($columns as $i => $col):
+            <?php foreach ($pdfCols as $item):
+                $col = $item['col'];
+                $i = $item['i'];
                 $isNum = in_array($col['type'] ?? 'text', ['money', 'int'], true);
                 $val = $row[$i] ?? '';
                 if (($col['type'] ?? '') === 'money') {
                     $val = ($val === null || $val === '') ? '—' : indian_number_format((float) $val, 2);
+                } elseif ($val === null || $val === '') {
+                    $val = $isNum ? '—' : '';
                 }
             ?>
               <td class="<?= $isNum ? 'num' : '' ?>"><?= pdf_e((string) $val) ?></td>
@@ -418,7 +433,9 @@ function report_pdf_stream(string $filename, array $report): void
       <?php if (!empty($table['totals'])): ?>
       <tfoot>
         <tr>
-          <?php foreach ($columns as $i => $col):
+          <?php foreach ($pdfCols as $item):
+              $col = $item['col'];
+              $i = $item['i'];
               $isNum = in_array($col['type'] ?? 'text', ['money', 'int'], true);
               $val = $table['totals'][$i] ?? '';
               if (($col['type'] ?? '') === 'money' && $val !== '' && $val !== null && !is_string($val)) {
