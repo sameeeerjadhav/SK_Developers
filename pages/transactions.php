@@ -63,6 +63,41 @@ function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectI
     ];
 }
 
+/** All matching ledger rows for export (not paginated). */
+function fetch_txn_export(PDO $pdo, string $txnType, int $companyId, int $projectId, string $from, string $to, string $q): array
+{
+    $where = 'WHERE 1=1';
+    $params = [];
+    if ($txnType === 'credit' || $txnType === 'debit') {
+        $where .= ' AND t.txn_type = ?';
+        $params[] = $txnType;
+    }
+    if ($companyId) { $where .= ' AND t.company_id = ?'; $params[] = $companyId; }
+    if ($projectId) { $where .= ' AND t.project_id = ?'; $params[] = $projectId; }
+    if ($from !== '') { $where .= ' AND t.txn_date >= ?'; $params[] = $from; }
+    if ($to !== '') { $where .= ' AND t.txn_date <= ?'; $params[] = $to; }
+    if ($q !== '') {
+        $where .= ' AND (t.description LIKE ? OR t.reference_no LIKE ? OR t.payee_name LIKE ? OR cat.name LIKE ? OR c.name LIKE ? OR p.name LIKE ?)';
+        $like = '%' . $q . '%';
+        array_push($params, $like, $like, $like, $like, $like, $like);
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT t.*, c.name AS company_name, cat.name AS category_name, cat.section,
+                p.name AS project_name, pr.name AS partner_name, ba.account_name, ba.bank_name
+         FROM transactions t
+         JOIN companies c ON c.id = t.company_id
+         JOIN categories cat ON cat.id = t.category_id
+         LEFT JOIN projects p ON p.id = t.project_id
+         LEFT JOIN partners pr ON pr.id = t.partner_id
+         LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+         $where
+         ORDER BY t.txn_date ASC, t.id ASC"
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
 /** Renders one Credit/Debit column: table of rows, a totals row, and pagination. */
 function render_txn_column(array $data, string $type, string $pageParam, array $baseQueryParams): void
 {
@@ -494,7 +529,8 @@ if ($month && $filterFrom === '' && $filterTo === '') {
 
 $pageTitle = 'Transactions';
 $pageSub = 'Full ledger across companies and projects.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
 
 $emptyPage = ['rows' => [], 'total' => 0, 'sum' => 0.0, 'page' => 1, 'totalPages' => 1];
 $creditPage = max(1, (int) get('credit_page', 1));
@@ -519,6 +555,122 @@ $baseQueryParams = [
     'credit_page' => $creditData['page'],
     'debit_page' => $debitData['page'],
 ];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    $exportType = ($filterType === 'credit' || $filterType === 'debit') ? $filterType : '';
+    $exportRows = fetch_txn_export($pdo, $exportType, $filterCompany, $filterProject, $filterFrom, $filterTo, $q);
+    $creditTotal = 0.0;
+    $debitTotal = 0.0;
+    $ledgerRows = [];
+    $byCategory = [];
+    foreach ($exportRows as $i => $r) {
+        $isCredit = ($r['txn_type'] ?? '') === 'credit';
+        $amt = (float) $r['amount'];
+        if ($isCredit) {
+            $creditTotal += $amt;
+        } else {
+            $debitTotal += $amt;
+        }
+        $catKey = ($r['category_name'] ?? '—') . '|' . ($r['txn_type'] ?? '');
+        if (!isset($byCategory[$catKey])) {
+            $byCategory[$catKey] = [
+                'category' => $r['category_name'] ?? '',
+                'type' => $isCredit ? 'Credit' : 'Debit',
+                'count' => 0,
+                'amount' => 0.0,
+            ];
+        }
+        $byCategory[$catKey]['count']++;
+        $byCategory[$catKey]['amount'] += $amt;
+        $bank = $r['account_name'] ? trim($r['account_name'] . ($r['bank_name'] ? ' - ' . $r['bank_name'] : '')) : '';
+        $ledgerRows[] = [
+            (string) ($i + 1),
+            report_plain_date($r['txn_date'] ?? null),
+            $isCredit ? 'Credit' : 'Debit',
+            $r['company_name'] ?? '',
+            $r['project_name'] ?? '',
+            $r['category_name'] ?? '',
+            $r['payee_name'] ?? '',
+            $r['partner_name'] ?? '',
+            $bank,
+            $r['reference_no'] ?? '',
+            $r['description'] ?? '',
+            $isCredit ? $amt : null,
+            $isCredit ? null : $amt,
+        ];
+    }
+    $catRows = [];
+    $n = 0;
+    foreach ($byCategory as $info) {
+        $n++;
+        $catRows[] = [(string) $n, $info['category'], $info['type'], $info['count'], $info['amount']];
+    }
+
+    $companyName = 'All companies';
+    if ($filterCompany) {
+        $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
+        $cn->execute([$filterCompany]);
+        $companyName = (string) ($cn->fetchColumn() ?: 'Company #' . $filterCompany);
+    }
+
+    report_download(post('export_action'), [
+        'filename' => 'transaction_ledger',
+        'title' => 'Transaction Ledger',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Period', report_display_period($filterFrom !== '' ? $filterFrom : $fromMonth, $filterTo !== '' ? $filterTo : $toMonth, $month, $year)],
+            ['Company', $companyName],
+            ['Type', $filterType === '' ? 'Credit and Debit' : ucfirst($filterType)],
+            ['Search', $q !== '' ? $q : '—'],
+        ],
+        'summary' => [
+            ['Total credit', $creditTotal, 'money'],
+            ['Total debit', $debitTotal, 'money'],
+            ['Net (credit − debit)', $creditTotal - $debitTotal, 'money'],
+            ['Entries', count($exportRows), 'int'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Ledger entries',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '4%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '7%', 'xls_width' => 60],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '11%', 'xls_width' => 120],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '10%', 'xls_width' => 110],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '10%', 'xls_width' => 110],
+                    ['label' => 'Name / Payee', 'type' => 'text', 'width' => '10%', 'xls_width' => 110],
+                    ['label' => 'Partner', 'type' => 'text', 'width' => '8%', 'xls_width' => 90],
+                    ['label' => 'Bank account', 'type' => 'text', 'width' => '9%', 'xls_width' => 120],
+                    ['label' => 'Ref', 'type' => 'text', 'width' => '6%', 'xls_width' => 70],
+                    ['label' => 'Particulars', 'type' => 'text', 'width' => '9%', 'xls_width' => 140],
+                    ['label' => 'Credit (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 95],
+                    ['label' => 'Debit (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 95],
+                ],
+                'rows' => $ledgerRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', '', '', '', $creditTotal, $debitTotal],
+            ],
+            [
+                'title' => 'Category totals',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '8%', 'xls_width' => 35],
+                    ['label' => 'Category', 'type' => 'text', 'width' => '40%', 'xls_width' => 180],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '16%', 'xls_width' => 70],
+                    ['label' => 'Entries', 'type' => 'int', 'width' => '14%', 'xls_width' => 70],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '22%', 'xls_width' => 110],
+                ],
+                'rows' => $catRows,
+                'totals' => ['', 'TOTAL', '', count($exportRows), $creditTotal + $debitTotal],
+            ],
+        ],
+        'notes' => [
+            'System-generated ledger. Credit and debit columns are exclusive per row.',
+            'Net = total credit minus total debit for the selected filters.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/transactions.php');
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
