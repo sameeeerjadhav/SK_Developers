@@ -282,7 +282,8 @@ if ($action === 'add' || $action === 'edit') {
 
 $pageTitle = 'Bank Loans';
 $pageSub = 'Loan register with outstanding balances.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/bank-loans.php?action=add')) . '">+ Add loan</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/bank-loans.php?action=add')) . '">+ Add loan</a>';
 $loans = $pdo->query(
     'SELECT l.*, c.name AS company_name, p.name AS project_name
      FROM bank_loans l
@@ -302,6 +303,120 @@ if ($loanIds) {
         $borrowersByLoan[(int) $b['loan_id']][] = $b['name'] . ($b['loan_amount'] !== null ? ' (' . money($b['loan_amount']) . ')' : '');
     }
 }
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $loanTotal = 0.0;
+    $activeOutstanding = 0.0;
+    $closedCount = 0;
+    $loanRows = [];
+    foreach ($loans as $i => $l) {
+        $loanTotal += (float) $l['loan_amount'];
+        if (($l['status'] ?? '') === 'active') {
+            $activeOutstanding += (float) $l['outstanding_amount'];
+        } else {
+            $closedCount++;
+        }
+        $loanRows[] = [
+            (string) ($i + 1),
+            $l['lender_name'] ?? '',
+            implode(', ', $borrowersByLoan[(int) $l['id']] ?? []),
+            $l['company_name'] ?? '',
+            $l['project_name'] ?? '',
+            ucfirst((string) ($l['status'] ?? '')),
+            (float) $l['loan_amount'],
+            (float) $l['outstanding_amount'],
+            $l['interest_charges'] !== null ? (float) $l['interest_charges'] : null,
+        ];
+    }
+
+    $borrowerRows = [];
+    if ($loanIds) {
+        $in = implode(',', array_fill(0, count($loanIds), '?'));
+        $fullB = $pdo->prepare(
+            "SELECT b.*, l.lender_name
+             FROM loan_borrowers b
+             JOIN bank_loans l ON l.id = b.loan_id
+             WHERE b.loan_id IN ($in)
+             ORDER BY l.lender_name, b.id"
+        );
+        $fullB->execute($loanIds);
+        foreach ($fullB->fetchAll() as $i => $b) {
+            $borrowerRows[] = [
+                (string) ($i + 1),
+                $b['lender_name'] ?? '',
+                $b['name'] ?? '',
+                $b['account_number'] ?? '',
+                $b['loan_amount'] !== null ? (float) $b['loan_amount'] : null,
+                $b['outstanding_amount'] !== null ? (float) $b['outstanding_amount'] : null,
+                $b['interest_charges'] !== null ? (float) $b['interest_charges'] : null,
+                report_plain_date($b['start_date'] ?? null),
+                report_plain_date($b['end_date'] ?? null),
+            ];
+        }
+    }
+
+    $allOutstanding = array_sum(array_map(fn($l) => (float) $l['outstanding_amount'], $loans));
+    $tables = [
+        [
+            'title' => 'Loan register',
+            'columns' => [
+                ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                ['label' => 'Lender / Bank', 'type' => 'text', 'width' => '16%', 'xls_width' => 160],
+                ['label' => 'Borrowers', 'type' => 'text', 'width' => '18%', 'xls_width' => 180],
+                ['label' => 'Company', 'type' => 'text', 'width' => '12%', 'xls_width' => 130],
+                ['label' => 'Project', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                ['label' => 'Status', 'type' => 'text', 'width' => '8%', 'xls_width' => 70],
+                ['label' => 'Loan amount (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 110],
+                ['label' => 'Outstanding (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 110],
+                ['label' => 'Interest + charges (INR)', 'type' => 'money', 'width' => '9%', 'xls_width' => 110],
+            ],
+            'rows' => $loanRows,
+            'totals' => ['', 'TOTAL', '', '', '', '', $loanTotal, $allOutstanding, ''],
+        ],
+    ];
+    if ($borrowerRows) {
+        $tables[] = [
+            'title' => 'Borrowers by loan',
+            'columns' => [
+                ['label' => 'Sr No', 'type' => 'text', 'width' => '6%', 'xls_width' => 35],
+                ['label' => 'Lender', 'type' => 'text', 'width' => '16%', 'xls_width' => 150],
+                ['label' => 'Borrower', 'type' => 'text', 'width' => '16%', 'xls_width' => 150],
+                ['label' => 'A/C', 'type' => 'text', 'width' => '10%', 'xls_width' => 70],
+                ['label' => 'Loan amount (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Outstanding (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Interest + charges (INR)', 'type' => 'money', 'width' => '12%', 'xls_width' => 110],
+                ['label' => 'Start date', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+                ['label' => 'End date', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+            ],
+            'rows' => $borrowerRows,
+        ];
+    }
+
+    report_download(post('export_action'), [
+        'filename' => 'bank_loans_register',
+        'title' => 'Bank Loan Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Loans', (string) count($loans)],
+            ['Closed / inactive', (string) $closedCount],
+        ],
+        'summary' => [
+            ['Total loan amount', $loanTotal, 'money'],
+            ['Total outstanding', $allOutstanding, 'money'],
+            ['Active outstanding', $activeOutstanding, 'money'],
+            ['Loans', count($loans), 'int'],
+        ],
+        'tables' => $tables,
+        'notes' => [
+            'System-generated loan register. Borrower outstanding is listed separately where recorded.',
+            'Open an individual loan to export its full repayment history.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/bank-loans.php');
+}
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
