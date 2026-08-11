@@ -167,153 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     $postAction = post('action', '');
 
-    if (in_array(post('export_action', ''), ['csv', 'pdf'], true)) {
-        $exportAction = post('export_action');
-        $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['repayment_ids'] ?? []), fn($id) => $id > 0)));
-
-        if (!$selectedIds) {
-            flash('error', 'Select at least one repayment to export.');
-            redirect('pages/loan-repayments.php');
-        }
-
-        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
-        $expStmt = $pdo->prepare(
-            "SELECT lr.*, bl.lender_name, c.name AS company_name, ba.account_name, ba.bank_name, lb.name AS borrower_name
-             FROM loan_repayments lr
-             JOIN bank_loans bl ON bl.id = lr.loan_id
-             JOIN companies c ON c.id = bl.company_id
-             LEFT JOIN bank_accounts ba ON ba.id = lr.bank_account_id
-             LEFT JOIN loan_borrowers lb ON lb.id = lr.borrower_id
-             WHERE lr.id IN ($placeholders)
-             ORDER BY lr.payment_date DESC, lr.id DESC"
-        );
-        $expStmt->execute($selectedIds);
-        $exportRows = $expStmt->fetchAll();
-
-        if (!$exportRows) {
-            flash('error', 'Selected repayments were not found.');
-            redirect('pages/loan-repayments.php');
-        }
-
-        $exportTotal = array_sum(array_map(fn($r) => (float) $r['amount'], $exportRows));
-        $exportPrincipal = array_sum(array_map(fn($r) => (float) $r['principal_amount'], $exportRows));
-        $exportInterest = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $exportRows));
-
-        if ($exportAction === 'csv') {
-            $filename = 'loan_repayments_' . date('Ymd_His') . '.csv';
-            header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            $out = fopen('php://output', 'w');
-            fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Date', 'Lender', 'Company', 'Amount', 'Principal', 'Interest', 'Bank Account', 'Borrower', 'Notes']);
-            foreach ($exportRows as $r) {
-                fputcsv($out, [
-                    $r['payment_date'],
-                    $r['lender_name'],
-                    $r['company_name'],
-                    number_format((float) $r['amount'], 2, '.', ''),
-                    number_format((float) $r['principal_amount'], 2, '.', ''),
-                    number_format((float) $r['interest_amount'], 2, '.', ''),
-                    $r['account_name'] ? ($r['account_name'] . ' - ' . $r['bank_name']) : '',
-                    $r['borrower_name'] ?? '',
-                    $r['notes'] ?? '',
-                ]);
-            }
-            fputcsv($out, []);
-            fputcsv($out, ['', '', 'Total', number_format($exportTotal, 2, '.', ''), number_format($exportPrincipal, 2, '.', ''), number_format($exportInterest, 2, '.', ''), '', '', '']);
-            fclose($out);
-            exit;
-        }
-
-        // PDF: formal print-ready report sheet, same pattern as Investments/Reports.
-        $entryWord = count($exportRows) === 1 ? 'entry' : 'entries';
-        $datesCovered = array_unique(array_map(fn($r) => $r['payment_date'], $exportRows));
-        sort($datesCovered);
-        $rangeLabel = count($datesCovered) > 1
-            ? format_date($datesCovered[0]) . ' – ' . format_date(end($datesCovered))
-            : format_date($datesCovered[0] ?? null);
-
-        $pageTitle = 'Loan repayments export';
-        $pageSub = count($exportRows) . ' selected ' . $entryWord . '.';
-        $pageActions = '<button class="btn btn-primary no-print" type="button" onclick="window.print()">Print / Save PDF</button>';
-        require __DIR__ . '/../includes/header.php';
-        ?>
-        <link rel="stylesheet" href="<?= e(base_url('assets/css/print.css')) ?>">
-        <div class="print-sheet card">
-          <div class="print-header report-header">
-            <div>
-              <div class="print-brand" style="font-family:Sora,sans-serif;font-weight:800;font-size:1.35rem;color:var(--teal-700,#0f766e)">Sai Kuber Developers</div>
-              <div class="report-doc-title">Loan Repayments Report</div>
-              <div class="print-meta report-meta" style="text-align:left"><?= count($exportRows) ?> <?= e($entryWord) ?> · <?= e($rangeLabel) ?></div>
-            </div>
-            <div class="print-meta report-meta">Generated <?= e(date('d-m-Y, h:i A')) ?><br>By <?= e(current_user()['name'] ?? '') ?></div>
-          </div>
-
-          <div class="report-summary">
-            <div>
-              <div class="label">Total repaid</div>
-              <div class="value"><?= money($exportTotal) ?></div>
-            </div>
-            <div>
-              <div class="label">Principal</div>
-              <div class="value text-success"><?= money($exportPrincipal) ?></div>
-            </div>
-            <div>
-              <div class="label">Interest</div>
-              <div class="value text-danger"><?= money($exportInterest) ?></div>
-            </div>
-          </div>
-
-          <div class="table-wrap">
-            <table class="data">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date</th>
-                  <th>Lender</th>
-                  <th>Company</th>
-                  <th>Bank account</th>
-                  <th>Borrower</th>
-                  <th class="num">Amount (₹)</th>
-                  <th class="num">Principal (₹)</th>
-                  <th class="num">Interest (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <?php foreach ($exportRows as $i => $r): ?>
-                  <tr>
-                    <td><?= $i + 1 ?></td>
-                    <td><?= e(format_date($r['payment_date'])) ?></td>
-                    <td><?= e($r['lender_name']) ?></td>
-                    <td><?= e($r['company_name']) ?></td>
-                    <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
-                    <td><?= e($r['borrower_name'] ?: '—') ?></td>
-                    <td class="num"><?= indian_number_format((float) $r['amount'], 2) ?></td>
-                    <td class="num"><?= indian_number_format((float) $r['principal_amount'], 2) ?></td>
-                    <td class="num"><?= indian_number_format((float) $r['interest_amount'], 2) ?></td>
-                  </tr>
-                <?php endforeach; ?>
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="6">TOTAL</td>
-                  <td class="num"><?= indian_number_format((float) $exportTotal, 2) ?></td>
-                  <td class="num"><?= indian_number_format((float) $exportPrincipal, 2) ?></td>
-                  <td class="num"><?= indian_number_format((float) $exportInterest, 2) ?></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <div class="report-footnote">
-            <p>This is a system-generated report from the Sai Kuber Developers finance system. Figures reflect the repayments selected at export time.</p>
-            <p>Confidential — internal use only.</p>
-          </div>
-        </div>
-        <?php
-        require __DIR__ . '/../includes/footer.php';
-        exit;
-    }
 
     if ($postAction === 'edit_repayment') {
         $repayId = (int) post('repayment_id', 0);
@@ -401,7 +254,8 @@ if ($month !== '' || $year !== '') {
 
 $pageTitle = 'Loan Repayments';
 $pageSub = 'Every repayment across all bank loans, grouped by lender.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/bank-loans.php')) . '">+ Go to loans</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/bank-loans.php')) . '">+ Go to loans</a>';
 
 $sql = "SELECT lr.*, bl.lender_name, bl.company_id, c.name AS company_name, ba.account_name, ba.bank_name, lb.name AS borrower_name
         FROM loan_repayments lr
@@ -425,6 +279,154 @@ $totalInterest = array_sum(array_map(fn($r) => (float) $r['interest_amount'], $r
 
 $loanGroups = group_repayments_by_loan($rows);
 $allLoans = $pdo->query('SELECT id, lender_name FROM bank_loans ORDER BY lender_name')->fetchAll();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['repayment_ids'] ?? []), fn($id) => $id > 0)));
+    $companyName = 'All companies';
+    if ($filterCompany) {
+        $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
+        $cn->execute([$filterCompany]);
+        $companyName = (string) ($cn->fetchColumn() ?: 'Company #' . $filterCompany);
+    }
+    $lenderName = 'All lenders';
+    if ($filterLoan) {
+        $ln = $pdo->prepare('SELECT lender_name FROM bank_loans WHERE id = ?');
+        $ln->execute([$filterLoan]);
+        $lenderName = (string) ($ln->fetchColumn() ?: 'Loan #' . $filterLoan);
+    }
+    $period = report_display_period($filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, $month, $year);
+
+    if ($selectedIds) {
+        $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
+        $expStmt = $pdo->prepare(
+            "SELECT lr.*, bl.lender_name, c.name AS company_name, ba.account_name, ba.bank_name, lb.name AS borrower_name
+             FROM loan_repayments lr
+             JOIN bank_loans bl ON bl.id = lr.loan_id
+             JOIN companies c ON c.id = bl.company_id
+             LEFT JOIN bank_accounts ba ON ba.id = lr.bank_account_id
+             LEFT JOIN loan_borrowers lb ON lb.id = lr.borrower_id
+             WHERE lr.id IN ($placeholders)
+             ORDER BY lr.payment_date ASC, lr.id ASC"
+        );
+        $expStmt->execute($selectedIds);
+        $exportRows = $expStmt->fetchAll();
+        if (!$exportRows) {
+            flash('error', 'Selected repayments were not found.');
+            redirect('pages/loan-repayments.php');
+        }
+        $scopeNote = 'Figures reflect the selected repayments at export time.';
+        $meta = [
+            ['Scope', 'Selected repayments'],
+            ['Entries', (string) count($exportRows)],
+        ];
+    } else {
+        $exportRows = $rows;
+        $scopeNote = 'Figures match the current filters at export time.';
+        $meta = [
+            ['Period', $period],
+            ['Company', $companyName],
+            ['Lender', $lenderName],
+            ['Entries', (string) count($exportRows)],
+        ];
+    }
+
+    $exportTotal = 0.0;
+    $exportPrincipal = 0.0;
+    $exportInterest = 0.0;
+    $repayRows = [];
+    foreach ($exportRows as $i => $r) {
+        $amt = (float) $r['amount'];
+        $prin = (float) $r['principal_amount'];
+        $int = (float) $r['interest_amount'];
+        $exportTotal += $amt;
+        $exportPrincipal += $prin;
+        $exportInterest += $int;
+        $bank = $r['account_name'] ? trim($r['account_name'] . ($r['bank_name'] ? ' - ' . $r['bank_name'] : '')) : 'Cash';
+        $repayRows[] = [
+            (string) ($i + 1),
+            report_plain_date($r['payment_date'] ?? null),
+            $r['lender_name'] ?? '',
+            $r['company_name'] ?? '',
+            $bank,
+            $r['borrower_name'] ?? '',
+            $amt,
+            $prin,
+            $int,
+            $r['notes'] ?? '',
+        ];
+    }
+
+    $byLender = [];
+    foreach ($exportRows as $r) {
+        $key = (string) ($r['lender_name'] ?? '—');
+        if (!isset($byLender[$key])) {
+            $byLender[$key] = ['count' => 0, 'total' => 0.0, 'principal' => 0.0, 'interest' => 0.0];
+        }
+        $byLender[$key]['count']++;
+        $byLender[$key]['total'] += (float) $r['amount'];
+        $byLender[$key]['principal'] += (float) $r['principal_amount'];
+        $byLender[$key]['interest'] += (float) $r['interest_amount'];
+    }
+    ksort($byLender);
+    $lenderRows = [];
+    $n = 0;
+    foreach ($byLender as $name => $info) {
+        $n++;
+        $lenderRows[] = [(string) $n, $name, $info['count'], $info['total'], $info['principal'], $info['interest']];
+    }
+
+    report_download(post('export_action'), [
+        'filename' => 'loan_repayments_register',
+        'title' => 'Loan Repayment Register',
+        'orientation' => 'landscape',
+        'meta' => $meta,
+        'summary' => [
+            ['Total repaid', $exportTotal, 'money'],
+            ['Principal', $exportPrincipal, 'money'],
+            ['Interest', $exportInterest, 'money'],
+            ['Entries', count($exportRows), 'int'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Repayment entries',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '9%', 'xls_width' => 80],
+                    ['label' => 'Lender / Bank', 'type' => 'text', 'width' => '14%', 'xls_width' => 140],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                    ['label' => 'Account', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                    ['label' => 'Borrower', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
+                    ['label' => 'Principal (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
+                    ['label' => 'Interest (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
+                    ['label' => 'Notes', 'type' => 'text', 'width' => '6%', 'xls_width' => 120],
+                ],
+                'rows' => $repayRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', $exportTotal, $exportPrincipal, $exportInterest, ''],
+            ],
+            [
+                'title' => 'Totals by lender',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '8%', 'xls_width' => 40],
+                    ['label' => 'Lender / Bank', 'type' => 'text', 'width' => '28%', 'xls_width' => 180],
+                    ['label' => 'Entries', 'type' => 'int', 'width' => '12%', 'xls_width' => 70],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '18%', 'xls_width' => 110],
+                    ['label' => 'Principal (INR)', 'type' => 'money', 'width' => '17%', 'xls_width' => 110],
+                    ['label' => 'Interest (INR)', 'type' => 'money', 'width' => '17%', 'xls_width' => 110],
+                ],
+                'rows' => $lenderRows,
+                'totals' => ['', 'TOTAL', count($exportRows), $exportTotal, $exportPrincipal, $exportInterest],
+            ],
+        ],
+        'notes' => [
+            $scopeNote,
+            'System-generated loan repayment register. Amount = principal + interest.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/loan-repayments.php');
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -495,6 +497,7 @@ require __DIR__ . '/../includes/header.php';
       <span class="selected-count muted">0 selected</span>
       <div class="export-actions">
         <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
+        <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel" disabled>Export Excel</button>
         <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
       </div>
     </div>
