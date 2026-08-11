@@ -5,13 +5,109 @@ require_login();
 
 $filterCompany = (int) get('company_id', 0);
 [$from, $to, $month, $year] = period_from_request();
-$pageTitle = 'Total Summary';
-$pageSub = 'Aggregated investment, partner, expense, bank loans, assets, deposits and profit — ' . period_label($from, $to, $month, $year) . '.';
-$reportQs = http_build_query(array_filter(['type' => 'pnl', 'month' => $month ?: null, 'year' => $year ?: null, 'company_id' => $filterCompany ?: null]));
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/reports.php?' . $reportQs)) . '">Print PDF</a>';
 
 $overall = summary_totals($pdo, $filterCompany ?: null, $from, $to);
 $companies = $pdo->query('SELECT * FROM companies WHERE status = "active" ORDER BY type ASC, id ASC')->fetchAll();
+
+$scopeName = 'All companies (group total)';
+if ($filterCompany) {
+    foreach ($companies as $co) {
+        if ((int) $co['id'] === $filterCompany) {
+            $scopeName = (string) $co['name'];
+            break;
+        }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $metricRows = [
+        ['1', 'Investment', (float) $overall['investment']],
+        ['2', 'Partner', (float) $overall['partner']],
+        ['3', 'Booking', (float) $overall['booking']],
+        ['4', 'Expense', (float) $overall['expense']],
+        ['5', 'Bank loans (outstanding)', (float) $overall['bank_loans']],
+        ['6', 'Bank balance', (float) $overall['bank_balance']],
+        ['7', 'Cash balance', (float) $overall['cash_balance']],
+        ['8', 'Assets', (float) $overall['assets']],
+        ['9', 'Deposits', (float) $overall['deposits']],
+        ['10', 'Total credits', (float) $overall['credits']],
+        ['11', 'Total debits', (float) $overall['debits']],
+        ['12', 'Profit (credits − debits)', (float) $overall['profit']],
+    ];
+    $tables = [[
+        'title' => 'Headline figures',
+        'columns' => [
+            ['label' => 'Sr No', 'type' => 'text', 'width' => '10%', 'xls_width' => 40],
+            ['label' => 'Particulars', 'type' => 'text', 'width' => '55%', 'xls_width' => 220],
+            ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '35%', 'xls_width' => 120],
+        ],
+        'rows' => $metricRows,
+    ]];
+    if (!$filterCompany) {
+        $coRows = [];
+        foreach ($companies as $i => $co) {
+            $s = summary_totals($pdo, (int) $co['id'], $from, $to);
+            $coRows[] = [
+                (string) ($i + 1),
+                $co['name'],
+                $co['type'] === 'main' ? 'Main' : 'Sub',
+                (float) $s['investment'],
+                (float) $s['partner'],
+                (float) $s['booking'],
+                (float) $s['expense'],
+                (float) $s['bank_loans'],
+                (float) $s['bank_balance'],
+                (float) $s['cash_balance'],
+                (float) $s['profit'],
+            ];
+        }
+        $tables[] = [
+            'title' => 'Company-wise summary',
+            'columns' => [
+                ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                ['label' => 'Company', 'type' => 'text', 'width' => '16%', 'xls_width' => 150],
+                ['label' => 'Type', 'type' => 'text', 'width' => '7%', 'xls_width' => 50],
+                ['label' => 'Investment', 'type' => 'money', 'width' => '9%', 'xls_width' => 95],
+                ['label' => 'Partner', 'type' => 'money', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Booking', 'type' => 'money', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Expense', 'type' => 'money', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Loans', 'type' => 'money', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Bank bal.', 'type' => 'money', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Cash bal.', 'type' => 'money', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Profit', 'type' => 'money', 'width' => '9%', 'xls_width' => 95],
+            ],
+            'rows' => $coRows,
+        ];
+    }
+    report_download(post('export_action'), [
+        'filename' => 'total_summary',
+        'title' => 'Total Summary',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Period', report_display_period($from, $to, $month, $year)],
+            ['Scope', $scopeName],
+        ],
+        'summary' => [
+            ['Profit', $overall['profit'], 'money'],
+            ['Credits', $overall['credits'], 'money'],
+            ['Debits', $overall['debits'], 'money'],
+            ['Bank balance', $overall['bank_balance'], 'money'],
+        ],
+        'tables' => $tables,
+        'notes' => [
+            'System-generated management summary for the selected period and company scope.',
+            'Profit = total credits minus total debits.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/summary.php');
+}
+
+$pageTitle = 'Total Summary';
+$pageSub = 'Aggregated investment, partner, expense, bank loans, assets, deposits and profit — ' . period_label($from, $to, $month, $year) . '.';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-outline" href="' . e(base_url('pages/reports.php?' . http_build_query(array_filter(['type' => 'pnl', 'month' => $month ?: null, 'year' => $year ?: null, 'company_id' => $filterCompany ?: null])))) . '">P&amp;L report</a>';
 
 require __DIR__ . '/../includes/header.php';
 ?>
