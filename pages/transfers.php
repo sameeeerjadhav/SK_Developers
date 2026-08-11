@@ -5,7 +5,7 @@ require_login();
 
 $action = get('action', 'list');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
     verify_csrf();
     $companyId = (int) post('company_id', 0);
     $amount = (float) post('amount', 0);
@@ -367,15 +367,136 @@ if ($action === 'add') {
 
 $pageTitle = 'Bank transfers';
 $pageSub = 'Internal moves, outbound payments, and money received from outside.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/transfers.php?action=add')) . '">+ New transfer</a>';
-$rows = $pdo->query(
-    'SELECT tr.*, c.name AS company_name, fa.account_name AS from_name, ta.account_name AS to_name
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/transfers.php?action=add')) . '">+ New transfer</a>';
+$transferSql = 'SELECT tr.*, c.name AS company_name, fa.account_name AS from_name, fa.bank_name AS from_bank,
+        ta.account_name AS to_name, ta.bank_name AS to_bank
      FROM bank_transfers tr
      JOIN companies c ON c.id = tr.company_id
      LEFT JOIN bank_accounts fa ON fa.id = tr.from_account_id
      LEFT JOIN bank_accounts ta ON ta.id = tr.to_account_id
-     ORDER BY tr.transfer_date DESC, tr.id DESC LIMIT 100'
-)->fetchAll();
+     ORDER BY tr.transfer_date DESC, tr.id DESC';
+$rows = $pdo->query($transferSql . ' LIMIT 100')->fetchAll();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $exportRows = $pdo->query($transferSql)->fetchAll();
+    $typeLabel = static function (string $type): string {
+        if ($type === 'inbound') {
+            return 'Incoming';
+        }
+        if ($type === 'external') {
+            return 'Outgoing / external';
+        }
+        return 'Internal';
+    };
+    $total = 0.0;
+    $byType = ['internal' => [0, 0.0], 'external' => [0, 0.0], 'inbound' => [0, 0.0]];
+    $entryRows = [];
+    foreach ($exportRows as $i => $r) {
+        $type = $r['transfer_type'] ?? 'internal';
+        $amt = (float) $r['amount'];
+        $total += $amt;
+        if (!isset($byType[$type])) {
+            $byType[$type] = [0, 0.0];
+        }
+        $byType[$type][0]++;
+        $byType[$type][1] += $amt;
+        $fromLabel = $type === 'inbound'
+            ? (string) ($r['source_name'] ?? '')
+            : trim(($r['from_name'] ?? '') . (($r['from_bank'] ?? '') ? ' - ' . $r['from_bank'] : ''));
+        $toLabel = $type === 'external'
+            ? (string) ($r['recipient_name'] ?? '')
+            : trim(($r['to_name'] ?? '') . (($r['to_bank'] ?? '') ? ' - ' . $r['to_bank'] : ''));
+        $partyDetail = '';
+        if ($type === 'inbound') {
+            $partyDetail = trim(implode(' / ', array_filter([
+                $r['source_account_number'] ?? '',
+                $r['source_ifsc'] ?? '',
+                $r['source_bank_name'] ?? '',
+            ])));
+        } elseif ($type === 'external') {
+            $partyDetail = trim(implode(' / ', array_filter([
+                $r['recipient_account_number'] ?? '',
+                $r['recipient_ifsc'] ?? '',
+                $r['recipient_bank_name'] ?? '',
+            ])));
+        }
+        $entryRows[] = [
+            (string) ($i + 1),
+            report_plain_date($r['transfer_date'] ?? null),
+            $typeLabel((string) $type),
+            $r['company_name'] ?? '',
+            $fromLabel,
+            $toLabel,
+            $partyDetail,
+            $r['reference_no'] ?? '',
+            $r['notes'] ?? '',
+            $amt,
+        ];
+    }
+    $typeRows = [];
+    $n = 0;
+    foreach (['internal' => 'Internal', 'inbound' => 'Incoming', 'external' => 'Outgoing / external'] as $key => $label) {
+        if (($byType[$key][0] ?? 0) <= 0) {
+            continue;
+        }
+        $n++;
+        $typeRows[] = [(string) $n, $label, $byType[$key][0], $byType[$key][1]];
+    }
+
+    report_download(post('export_action'), [
+        'filename' => 'bank_transfers',
+        'title' => 'Bank Transfer Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Entries included', (string) count($exportRows)],
+        ],
+        'summary' => [
+            ['Total transferred', $total, 'money'],
+            ['Internal', $byType['internal'][1], 'money'],
+            ['Incoming', $byType['inbound'][1], 'money'],
+            ['Outgoing', $byType['external'][1], 'money'],
+        ],
+        'tables' => [
+            [
+                'title' => 'Transfer entries',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                    ['label' => 'Date', 'type' => 'text', 'width' => '9%', 'xls_width' => 80],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '12%', 'xls_width' => 100],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '12%', 'xls_width' => 130],
+                    ['label' => 'From', 'type' => 'text', 'width' => '14%', 'xls_width' => 140],
+                    ['label' => 'To', 'type' => 'text', 'width' => '14%', 'xls_width' => 140],
+                    ['label' => 'Party bank details', 'type' => 'text', 'width' => '14%', 'xls_width' => 160],
+                    ['label' => 'Ref', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
+                    ['label' => 'Notes', 'type' => 'text', 'width' => '12%', 'xls_width' => 140],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 100],
+                ],
+                'rows' => $entryRows,
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', '', $total],
+            ],
+            [
+                'title' => 'Totals by type',
+                'columns' => [
+                    ['label' => 'Sr No', 'type' => 'text', 'width' => '10%', 'xls_width' => 35],
+                    ['label' => 'Type', 'type' => 'text', 'width' => '40%', 'xls_width' => 160],
+                    ['label' => 'Entries', 'type' => 'int', 'width' => '20%', 'xls_width' => 70],
+                    ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '30%', 'xls_width' => 110],
+                ],
+                'rows' => $typeRows,
+                'totals' => ['', 'TOTAL', count($exportRows), $total],
+            ],
+        ],
+        'notes' => [
+            'System-generated transfer register. Includes internal, incoming, and outgoing transfers.',
+            'Party bank details apply to incoming sources and external recipients.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/transfers.php');
+}
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="card">
