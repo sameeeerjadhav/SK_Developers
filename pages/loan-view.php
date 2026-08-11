@@ -959,6 +959,7 @@ require __DIR__ . '/../includes/header.php';
 <div class="card" id="borrowersSection">
   <div class="card-head" style="flex-wrap:wrap;gap:0.75rem;align-items:flex-end">
     <h2 class="card-title" style="margin:0">Borrowers / guarantors</h2>
+    <p class="muted" style="margin:0;font-size:0.8rem;width:100%">Top PDF / Excel / CSV = whole loan. Buttons on a card = that person only.</p>
     <div class="field" style="flex:1;min-width:220px;max-width:360px;margin:0">
       <label for="borrowerSearch" style="margin-bottom:0.25rem">Search borrower</label>
       <input type="search" id="borrowerSearch" placeholder="Type name or A/C number…" autocomplete="off">
@@ -1000,10 +1001,11 @@ require __DIR__ . '/../includes/header.php';
             <tr><td>Reconveyance</td><td><?= $b['reconveyance_date'] ? e(format_date($b['reconveyance_date'])) : '—' ?></td></tr>
           </tbody>
         </table>
-        <form method="post" class="no-print" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin-top:0.85rem">
+        <form method="post" style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-top:0.9rem;padding-top:0.85rem;border-top:1px solid var(--border)">
           <?= csrf_field() ?>
           <input type="hidden" name="borrower_id" value="<?= $bid ?>">
-          <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="pdf">PDF</button>
+          <span class="muted" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;margin-right:0.15rem">This person</span>
+          <button class="btn btn-primary btn-sm" type="submit" name="export_action" value="pdf">PDF</button>
           <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel">Excel</button>
           <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="csv">CSV</button>
         </form>
