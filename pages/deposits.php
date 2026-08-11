@@ -138,7 +138,8 @@ if ($action === 'add' || $action === 'edit') {
 
 $pageTitle = 'Deposits';
 $pageSub = 'Fixed deposits, security deposits and related holdings.';
-$pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/deposits.php?action=add')) . '">+ Add deposit</a>';
+$pageActions = report_export_buttons()
+    . '<a class="btn btn-primary" href="' . e(base_url('pages/deposits.php?action=add')) . '">+ Add deposit</a>';
 $deposits = $pdo->query(
     'SELECT d.*, c.name AS company_name, ba.account_name
      FROM deposits d
@@ -147,6 +148,62 @@ $deposits = $pdo->query(
      ORDER BY d.status, d.deposit_date DESC'
 )->fetchAll();
 $activeTotal = array_sum(array_map(fn($d) => $d['status'] === 'active' ? (float)$d['amount'] : 0, $deposits));
+$allTotal = array_sum(array_map(fn($d) => (float) $d['amount'], $deposits));
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
+    verify_csrf();
+    $depRows = [];
+    foreach ($deposits as $i => $d) {
+        $depRows[] = [
+            (string) ($i + 1),
+            $d['title'] ?? '',
+            $d['company_name'] ?? '',
+            $d['account_name'] ?? '',
+            report_plain_date($d['deposit_date'] ?? null),
+            report_plain_date($d['maturity_date'] ?? null),
+            $d['interest_rate'] !== null ? (string) $d['interest_rate'] : '',
+            ucfirst((string) ($d['status'] ?? '')),
+            (float) $d['amount'],
+            $d['notes'] ?? '',
+        ];
+    }
+    report_download(post('export_action'), [
+        'filename' => 'deposits_register',
+        'title' => 'Deposit Register',
+        'orientation' => 'landscape',
+        'meta' => [
+            ['Records', (string) count($deposits)],
+        ],
+        'summary' => [
+            ['Active deposits', $activeTotal, 'money'],
+            ['All deposits', $allTotal, 'money'],
+            ['Records', count($deposits), 'int'],
+        ],
+        'tables' => [[
+            'title' => 'Deposits',
+            'columns' => [
+                ['label' => 'Sr No', 'type' => 'text', 'width' => '5%', 'xls_width' => 35],
+                ['label' => 'Title', 'type' => 'text', 'width' => '16%', 'xls_width' => 150],
+                ['label' => 'Company', 'type' => 'text', 'width' => '14%', 'xls_width' => 130],
+                ['label' => 'Bank account', 'type' => 'text', 'width' => '12%', 'xls_width' => 120],
+                ['label' => 'Deposit date', 'type' => 'text', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Maturity', 'type' => 'text', 'width' => '9%', 'xls_width' => 90],
+                ['label' => 'Rate %', 'type' => 'text', 'width' => '7%', 'xls_width' => 60],
+                ['label' => 'Status', 'type' => 'text', 'width' => '8%', 'xls_width' => 70],
+                ['label' => 'Amount (INR)', 'type' => 'money', 'width' => '10%', 'xls_width' => 110],
+                ['label' => 'Notes', 'type' => 'text', 'width' => '10%', 'xls_width' => 140],
+            ],
+            'rows' => $depRows,
+            'totals' => ['', 'TOTAL', '', '', '', '', '', '', $allTotal, ''],
+        ]],
+        'notes' => [
+            'System-generated deposit register including active and closed records.',
+            'Confidential — internal use only.',
+        ],
+    ]);
+    redirect('pages/deposits.php');
+}
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
