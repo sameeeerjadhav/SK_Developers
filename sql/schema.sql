@@ -338,7 +338,7 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 ('credit', 'Monthly Credit', 'monthly_credit', 12),
 ('credit', 'Partner', 'partner', 20),
 ('credit', 'Partner Capital', 'partner_capital', 21),
-('credit', 'Partner Advance', 'partner_advance', 22),
+('credit', 'Partner Advance Return', 'partner_advance_return', 23),
 ('credit', 'Booking', 'booking', 30),
 ('credit', 'Bank Loan', 'bank_loan', 40),
 ('credit', 'Bank Account', 'bank_account', 50),
@@ -366,7 +366,7 @@ INSERT INTO categories (section, name, slug, sort_order) VALUES
 ('general', 'Monthly Debit', 'monthly_debit', 52),
 ('general', 'Booking Refund', 'booking_refund', 53),
 ('general', 'Partner Capital Withdrawal', 'partner_capital_withdrawal', 54),
-('general', 'Partner Advance Return', 'partner_advance_return', 55);
+('general', 'Partner Advance', 'partner_advance', 55);
 
 -- Sample projects
 INSERT INTO projects (company_id, name, location, status, start_date) VALUES

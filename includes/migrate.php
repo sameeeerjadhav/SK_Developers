@@ -402,11 +402,14 @@ function ensure_v2_schema(PDO $pdo): void
     }
 
     // ---- Partner Capital / Advance categories (credit + debit mirror) ----
+    // Advance paid to a partner is money out (debit/general). Return is money in (credit).
+    migrate_category_section($pdo, 'partner_advance', 'credit', 'general', 55);
+    migrate_category_section($pdo, 'partner_advance_return', 'general', 'credit', 23);
     foreach ([
         ['credit', 'Partner Capital', 'partner_capital', 21],
-        ['credit', 'Partner Advance', 'partner_advance', 22],
+        ['credit', 'Partner Advance Return', 'partner_advance_return', 23],
         ['general', 'Partner Capital Withdrawal', 'partner_capital_withdrawal', 54],
-        ['general', 'Partner Advance Return', 'partner_advance_return', 55],
+        ['general', 'Partner Advance', 'partner_advance', 55],
     ] as [$catSection, $catName, $catSlug, $catSort]) {
         $chkCat = $pdo->prepare("SELECT id FROM categories WHERE section=? AND slug=? LIMIT 1");
         $chkCat->execute([$catSection, $catSlug]);
@@ -415,10 +418,19 @@ function ensure_v2_schema(PDO $pdo): void
             $ins->execute([$catSection, $catName, $catSlug, $catSort]);
         }
     }
+    $pdo->exec("UPDATE transactions t JOIN categories c ON c.id = t.category_id SET t.txn_type = 'debit' WHERE c.slug = 'partner_advance' AND t.txn_type <> 'debit'");
+    $pdo->exec("UPDATE transactions t JOIN categories c ON c.id = t.category_id SET t.txn_type = 'credit' WHERE c.slug = 'partner_advance_return' AND t.txn_type <> 'credit'");
 
     $partnerCols = $pdo->query("SHOW COLUMNS FROM partners")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('advance_amount', $partnerCols, true)) {
         $pdo->exec('ALTER TABLE partners ADD COLUMN advance_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER invested_amount');
+    }
+    try {
+        foreach ($pdo->query('SELECT id FROM partners')->fetchAll(PDO::FETCH_COLUMN) ?: [] as $pid) {
+            sync_partner_invested($pdo, (int) $pid);
+            sync_partner_advance($pdo, (int) $pid);
+        }
+    } catch (Throwable $e) {
     }
 
     // ---- Bank loan mortgage document tracking ----
@@ -494,6 +506,26 @@ function ensure_v2_schema(PDO $pdo): void
     ensure_db_index($pdo, 'transactions', 'idx_txn_category', 'category_id');
 
     @file_put_contents($marker, $version);
+}
+
+function migrate_category_section(PDO $pdo, string $slug, string $fromSection, string $toSection, int $sortOrder): void
+{
+    $fromStmt = $pdo->prepare('SELECT id FROM categories WHERE section = ? AND slug = ? LIMIT 1');
+    $fromStmt->execute([$fromSection, $slug]);
+    $fromId = $fromStmt->fetchColumn();
+    $toStmt = $pdo->prepare('SELECT id FROM categories WHERE section = ? AND slug = ? LIMIT 1');
+    $toStmt->execute([$toSection, $slug]);
+    $toId = $toStmt->fetchColumn();
+
+    if ($fromId && !$toId) {
+        $upd = $pdo->prepare('UPDATE categories SET section = ?, sort_order = ? WHERE id = ?');
+        $upd->execute([$toSection, $sortOrder, (int) $fromId]);
+        return;
+    }
+    if ($fromId && $toId && (int) $fromId !== (int) $toId) {
+        $pdo->prepare('UPDATE transactions SET category_id = ? WHERE category_id = ?')->execute([(int) $toId, (int) $fromId]);
+        $pdo->prepare('DELETE FROM categories WHERE id = ?')->execute([(int) $fromId]);
+    }
 }
 
 function ensure_db_index(PDO $pdo, string $table, string $indexName, string $columns): void

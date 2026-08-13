@@ -17,12 +17,16 @@ if (!$project) {
 
 $credits = section_breakdown($pdo, $id, 'credit');
 $land = section_breakdown($pdo, $id, 'land_purchase');
+$partnerDebits = slug_breakdown($pdo, $id, ['partner_advance', 'partner_capital_withdrawal']);
+$debits = array_merge($land, $partnerDebits);
 $expenses = section_breakdown($pdo, $id, 'expense');
 
 $creditTotal = array_sum(array_map(fn($r) => (float)$r['total'], $credits));
 $landTotal = array_sum(array_map(fn($r) => (float)$r['total'], $land));
+$partnerDebitTotal = array_sum(array_map(fn($r) => (float)$r['total'], $partnerDebits));
+$debitTotal = $landTotal + $partnerDebitTotal;
 $expenseTotal = array_sum(array_map(fn($r) => (float)$r['total'], $expenses));
-$profit = $creditTotal - $landTotal - $expenseTotal;
+$profit = $creditTotal - $debitTotal - $expenseTotal;
 
 $txns = $pdo->prepare(
     'SELECT t.*, cat.name AS category_name, cat.slug AS category_slug, cat.section
@@ -67,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         return $out;
     };
     $creditRows = $mapCats($credits);
-    $landRows = $mapCats($land);
+    $debitRows = $mapCats($debits);
     $expenseRows = $mapCats($expenses);
 
     $ledgerStmt = $pdo->prepare(
@@ -131,6 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         'summary' => [
             ['Credit', $creditTotal, 'money'],
             ['Land purchase', $landTotal, 'money'],
+            ['Partner debit', $partnerDebitTotal, 'money'],
             ['Expenses', $expenseTotal, 'money'],
             ['Profit', $profit, 'money'],
         ],
@@ -142,10 +147,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
                 'totals' => $creditRows ? ['', 'TOTAL', '', '', $creditTotal] : null,
             ],
             [
-                'title' => 'Land purchase by category',
+                'title' => 'Debit by category (land + partner outflows)',
                 'columns' => $catCols,
-                'rows' => $landRows,
-                'totals' => $landRows ? ['', 'TOTAL', '', '', $landTotal] : null,
+                'rows' => $debitRows,
+                'totals' => $debitRows ? ['', 'TOTAL', '', '', $debitTotal] : null,
             ],
             [
                 'title' => 'Expenses by category',
@@ -171,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ],
         'notes' => [
             'System-generated project report. Category tables omit zero-value rows. Ledger is the full project history.',
-            'Profit = credit − land purchase − expenses.',
+            'Profit = credit − debit (land + partner advance/withdrawal) − expenses.',
             'Confidential — internal use only.',
         ],
     ]);
@@ -243,9 +248,9 @@ function render_ledger_rows(array $rows, string $idPrefix): void
     <div class="ledger-total"><span>Total credit</span><span class="text-success"><?= money($creditTotal) ?></span></div>
   </div>
   <div class="card ledger-block debit">
-    <h3>Land Purchase (Debit)</h3>
-    <?php render_ledger_rows($land, 'land'); ?>
-    <div class="ledger-total"><span>Total land</span><span class="text-danger"><?= money($landTotal) ?></span></div>
+    <h3>Debit</h3>
+    <?php render_ledger_rows($debits, 'debit'); ?>
+    <div class="ledger-total"><span>Total debit</span><span class="text-danger"><?= money($debitTotal) ?></span></div>
   </div>
   <div class="card ledger-block expense">
     <h3>Expenses</h3>
