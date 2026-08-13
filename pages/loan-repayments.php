@@ -79,6 +79,7 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                         <th>Bank account</th>
                         <th>Borrower</th>
                         <th>Notes</th>
+                        <?php if (can_delete()): ?><th class="actions">Actions</th><?php endif; ?>
                       </tr>
                     </thead>
                     <tbody>
@@ -94,9 +95,19 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                           <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
                           <td><?= e($r['borrower_name'] ?: '—') ?></td>
                           <td><?= e($r['notes'] ?: '') ?></td>
+                          <?php if (can_delete()): ?>
+                          <td class="actions">
+                            <form method="post" style="display:inline">
+                              <?= csrf_field() ?>
+                              <input type="hidden" name="action" value="delete_repayment">
+                              <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
+                              <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry? Outstanding will be recalculated.">Delete</button>
+                            </form>
+                          </td>
+                          <?php endif; ?>
                         </tr>
                         <tr class="row-detail" id="<?= e($repayEditId) ?>" hidden>
-                          <td colspan="8">
+                          <td colspan="<?= can_delete() ? 9 : 8 ?>">
                             <form method="post" class="form-grid repay-edit-form" style="padding:0">
                               <?= csrf_field() ?>
                               <input type="hidden" name="action" value="edit_repayment">
@@ -140,14 +151,6 @@ function render_repayment_loans(PDO $pdo, array $loans): void
                                 <button class="btn btn-primary btn-sm" type="submit">Save changes</button>
                               </div>
                             </form>
-                            <?php if (can_delete()): ?>
-                            <form method="post" style="margin-top:0.5rem">
-                              <?= csrf_field() ?>
-                              <input type="hidden" name="action" value="delete_repayment">
-                              <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
-                              <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry?">Delete this entry</button>
-                            </form>
-                            <?php endif; ?>
                           </td>
                         </tr>
                       <?php endforeach; ?>

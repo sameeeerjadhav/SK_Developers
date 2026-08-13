@@ -82,8 +82,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('error', 'Only admins can delete loans.');
             redirect('pages/bank-loans.php');
         }
-        $pdo->prepare('DELETE FROM bank_loans WHERE id = ?')->execute([(int) post('id', 0)]);
-        flash('success', 'Bank loan deleted.');
+        $loanId = (int) post('id', 0);
+        $loanStmt = $pdo->prepare('SELECT * FROM bank_loans WHERE id = ?');
+        $loanStmt->execute([$loanId]);
+        $loanRow = $loanStmt->fetch();
+        if (!$loanRow) {
+            flash('error', 'Loan not found.');
+            redirect('pages/bank-loans.php');
+        }
+        try {
+            $pdo->beginTransaction();
+            $txnIds = [];
+            $rTxn = $pdo->prepare('SELECT transaction_id FROM loan_repayments WHERE loan_id = ? AND transaction_id IS NOT NULL');
+            $rTxn->execute([$loanId]);
+            foreach ($rTxn->fetchAll(PDO::FETCH_COLUMN) as $tid) {
+                $txnIds[] = (int) $tid;
+            }
+            try {
+                $eTxn = $pdo->prepare('SELECT transaction_id FROM loan_emis WHERE loan_id = ? AND transaction_id IS NOT NULL');
+                $eTxn->execute([$loanId]);
+                foreach ($eTxn->fetchAll(PDO::FETCH_COLUMN) as $tid) {
+                    $txnIds[] = (int) $tid;
+                }
+            } catch (Throwable $e) {
+            }
+            $catId = category_id_by_slug($pdo, 'credit', 'bank_loan');
+            if ($catId) {
+                $openSql = 'SELECT id FROM transactions WHERE category_id = ? AND company_id = ? AND amount = ? AND description = ?';
+                $openParams = [$catId, $loanRow['company_id'], $loanRow['loan_amount'], 'Bank loan from ' . $loanRow['lender_name']];
+                if (!empty($loanRow['project_id'])) {
+                    $openSql .= ' AND project_id = ?';
+                    $openParams[] = $loanRow['project_id'];
+                } else {
+                    $openSql .= ' AND project_id IS NULL';
+                }
+                $openStmt = $pdo->prepare($openSql);
+                $openStmt->execute($openParams);
+                foreach ($openStmt->fetchAll(PDO::FETCH_COLUMN) as $tid) {
+                    $txnIds[] = (int) $tid;
+                }
+            }
+            $txnIds = array_values(array_unique(array_filter($txnIds)));
+            $pdo->prepare('DELETE FROM loan_repayments WHERE loan_id = ?')->execute([$loanId]);
+            try {
+                $pdo->prepare('DELETE FROM loan_emis WHERE loan_id = ?')->execute([$loanId]);
+            } catch (Throwable $e) {
+            }
+            $pdo->prepare('DELETE FROM loan_borrowers WHERE loan_id = ?')->execute([$loanId]);
+            $pdo->prepare('DELETE FROM bank_loans WHERE id = ?')->execute([$loanId]);
+            if ($txnIds) {
+                $in = implode(',', array_fill(0, count($txnIds), '?'));
+                try {
+                    $atts = $pdo->prepare("SELECT stored_name FROM attachments WHERE transaction_id IN ($in)");
+                    $atts->execute($txnIds);
+                    foreach ($atts->fetchAll() as $att) {
+                        $path = uploads_dir() . '/' . $att['stored_name'];
+                        if (is_file($path)) {
+                            @unlink($path);
+                        }
+                    }
+                    $pdo->prepare("DELETE FROM attachments WHERE transaction_id IN ($in)")->execute($txnIds);
+                } catch (Throwable $e) {
+                }
+                $pdo->prepare("DELETE FROM transactions WHERE id IN ($in)")->execute($txnIds);
+            }
+            $pdo->commit();
+            audit_log($pdo, 'delete', 'bank_loan', $loanId, 'Deleted loan ' . $loanRow['lender_name']);
+            flash('success', 'Bank loan deleted.');
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            flash('error', 'Could not delete loan.');
+        }
         redirect('pages/bank-loans.php');
     }
 }
@@ -448,7 +519,7 @@ require __DIR__ . '/../includes/header.php';
                 <?php if (can_delete()): ?>
                 <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$l['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete loan?">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this loan and all its repayment entries?">Delete</button>
                 </form>
                 <?php endif; ?>
               </td>

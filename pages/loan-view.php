@@ -25,7 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $isExport = in_array($exportAction, ['csv', 'excel', 'pdf'], true);
     $postAction = post('action', '');
 
-    if (!$isExport && $viewOnly) {
+    if (!$isExport && $viewOnly && $postAction !== 'delete_repayment') {
         flash('error', 'Open Repayments to record or edit payments.');
         redirect('pages/loan-view.php?id=' . $id . '&mode=view');
     }
@@ -162,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         refresh_loan_outstanding($pdo, $id);
         audit_log($pdo, 'delete', 'loan_repayment', $id, 'Deleted repayment #' . $repayId . ' for ' . $loan['lender_name']);
         flash('success', 'Repayment deleted.');
-        redirect('pages/loan-view.php?id=' . $id . '&mode=repay');
+        redirect('pages/loan-view.php?id=' . $id . '&mode=' . ($viewOnly ? 'view' : 'repay'));
     }
 }
 
@@ -1097,6 +1097,7 @@ require __DIR__ . '/../includes/header.php';
             <th>Bank account</th>
             <th>Borrower</th>
             <th>Notes</th>
+            <?php if (can_delete()): ?><th class="actions">Actions</th><?php endif; ?>
           </tr>
         </thead>
         <tbody>
@@ -1112,10 +1113,20 @@ require __DIR__ . '/../includes/header.php';
               <td><?= $r['account_name'] ? e($r['account_name'] . ' — ' . $r['bank_name']) : '—' ?></td>
               <td><?= e($r['borrower_name'] ?: '—') ?></td>
               <td><?= e($r['notes'] ?: '') ?></td>
+              <?php if (can_delete()): ?>
+              <td class="actions">
+                <form method="post" style="display:inline">
+                  <?= csrf_field() ?>
+                  <input type="hidden" name="action" value="delete_repayment">
+                  <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry? Outstanding will be recalculated.">Delete</button>
+                </form>
+              </td>
+              <?php endif; ?>
             </tr>
             <?php if (!$viewOnly): ?>
             <tr class="row-detail repay-row-detail" id="<?= e($repayEditId) ?>" data-search="<?= e($repaySearch) ?>" data-borrower-id="<?= (int) ($r['borrower_id'] ?? 0) ?>" hidden>
-              <td colspan="7">
+              <td colspan="<?= can_delete() ? 8 : 7 ?>">
                 <form method="post" class="form-grid repay-edit-form" style="padding:0">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="edit_repayment">
@@ -1154,14 +1165,6 @@ require __DIR__ . '/../includes/header.php';
                     <button class="btn btn-primary btn-sm" type="submit">Save changes</button>
                   </div>
                 </form>
-                <?php if (can_delete()): ?>
-                <form method="post" style="margin-top:0.5rem">
-                  <?= csrf_field() ?>
-                  <input type="hidden" name="action" value="delete_repayment">
-                  <input type="hidden" name="repayment_id" value="<?= (int) $r['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this repayment entry?">Delete this entry</button>
-                </form>
-                <?php endif; ?>
               </td>
             </tr>
             <?php endif; ?>
@@ -1176,6 +1179,7 @@ require __DIR__ . '/../includes/header.php';
             <td></td>
             <td></td>
             <td></td>
+            <?php if (can_delete()): ?><td></td><?php endif; ?>
           </tr>
         </tfoot>
       </table>
