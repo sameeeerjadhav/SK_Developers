@@ -153,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         audit_log($pdo, 'create', 'booking_payment', $bookingId, 'Recorded payment for booking #' . $bookingId . ' — received ' . money($amountReceived) . ', returned ' . money($amountReturned));
         flash('success', 'Payment recorded.');
-        redirect('pages/bookings.php?expand=' . $bookingId);
+        redirect(list_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
     if ($postAction === 'edit_payment') {
@@ -200,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         audit_log($pdo, 'update', 'booking_payment', (int) $payment['booking_id'], 'Edited payment #' . $paymentId . ' to ' . money($amount) . ' (' . $paymentType . ')');
         flash('success', 'Payment updated.');
-        redirect('pages/bookings.php?expand=' . (int) $payment['booking_id']);
+        redirect(list_return_url('bookings.php', ['expand' => (string) (int) $payment['booking_id'], 'extra' => '']));
     }
 
     if ($postAction === 'delete_payment') {
@@ -233,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'Deleted payment #' . $paymentId . ' (' . ($payment['payment_type'] ?? '') . ' ' . money($payment['amount']) . ')'
         );
         flash('success', 'Payment entry deleted. Remaining amount has been updated.');
-        redirect('pages/bookings.php?expand=' . $bookingId);
+        redirect(list_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => ''], 'list'));
     }
 
     if ($postAction === 'delete') {

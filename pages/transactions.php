@@ -317,18 +317,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($postAction === 'delete') {
         if (!can_delete()) {
             flash('error', 'Only admins can delete transactions.');
-            redirect('pages/transactions.php');
+            redirect(list_return_url('transactions.php'));
         }
         $delId = (int) post('id', 0);
         $linkedBooking = $pdo->prepare('SELECT id FROM booking_payments WHERE transaction_id = ? LIMIT 1');
         $linkedBooking->execute([$delId]);
         if ($linkedBooking->fetchColumn()) {
             flash('error', 'This entry belongs to a booking. Delete it from Bookings.');
-            redirect('pages/transactions.php');
+            redirect(list_return_url('transactions.php'));
         }
-        $stmt = $pdo->prepare('SELECT partner_id FROM transactions WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT partner_id, txn_type FROM transactions WHERE id = ?');
         $stmt->execute([$delId]);
-        $partnerId = $stmt->fetchColumn();
+        $delRow = $stmt->fetch();
+        $partnerId = $delRow['partner_id'] ?? null;
+        $delType = (string) ($delRow['txn_type'] ?? 'credit');
         // remove files
         $atts = $pdo->prepare('SELECT stored_name FROM attachments WHERE transaction_id = ?');
         $atts->execute([$delId]);
@@ -345,7 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             sync_partner_advance($pdo, (int) $partnerId);
         }
         flash('success', 'Transaction deleted.');
-        redirect('pages/transactions.php');
+        redirect(list_return_url('transactions.php', [], $delType === 'debit' ? 'debit' : 'credit'));
     }
 }
 

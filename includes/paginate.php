@@ -37,6 +37,15 @@ function list_preserved_query(array $extra = [], array $skip = []): array
     return $out;
 }
 
+function list_return_url(string $pageFile, array $extra = [], string $anchor = 'list'): string
+{
+    $query = list_preserved_query($extra, ['action', 'id']);
+    unset($query['action'], $query['id']);
+    $qs = http_build_query(array_filter($query, static fn($v) => $v !== null && $v !== ''));
+    $hash = $anchor !== '' ? '#' . $anchor : '';
+    return 'pages/' . $pageFile . ($qs !== '' ? '?' . $qs : '') . $hash;
+}
+
 /**
  * @return array{total: int, page: int, pages: int, limit: int, offset: int, from: int, to: int, page_param: string}
  */
