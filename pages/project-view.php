@@ -48,7 +48,7 @@ foreach ($allTxns as $t) {
 $pageTitle = $project['name'];
 $pageSub = ($project['company_type'] === 'main' ? 'Main company' : 'Sub company') . ' · ' . $project['company_name'];
 $pageActions = report_export_buttons()
-    . '<a class="btn btn-outline" href="' . e(base_url('pages/project-entries.php?id=' . $id)) . '">Project entries</a>'
+    . '<a class="btn btn-info" href="' . e(base_url('pages/project-entries.php?id=' . $id)) . '">Project entries</a>'
     . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&project_id=' . $id . '&company_id=' . $project['company_id'])) . '">+ Add entry</a>'
     . '<a class="btn btn-outline" href="' . e(base_url('pages/projects.php?action=edit&id=' . $id)) . '">Edit</a>';
 

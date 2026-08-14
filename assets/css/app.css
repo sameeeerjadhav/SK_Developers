@@ -375,6 +375,12 @@ span.btn[aria-disabled="true"] { opacity: 0.4; pointer-events: none; cursor: def
 .btn-outline:hover { background: var(--primary-ghost); color: var(--primary-dark); border-color: #9fd5cd; }
 .btn-danger { background: #fee2e2; color: var(--danger); }
 .btn-danger:hover { background: #fecaca; color: #991b1b; }
+.btn-info {
+  color: #fff;
+  background: linear-gradient(145deg, #38bdf8, var(--info));
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.28);
+}
+.btn-info:hover { color: #fff; box-shadow: 0 8px 20px rgba(2, 132, 199, 0.36); }
 .btn-sm { padding: 0.4rem 0.75rem; border-radius: 12px; font-size: 0.8rem; }
 
 .form-grid {
