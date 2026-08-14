@@ -153,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         audit_log($pdo, 'create', 'booking_payment', $bookingId, 'Recorded payment for booking #' . $bookingId . ' — received ' . money($amountReceived) . ', returned ' . money($amountReturned));
         flash('success', 'Payment recorded.');
-        redirect(list_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
+        redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
     if ($postAction === 'edit_payment') {
@@ -200,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         audit_log($pdo, 'update', 'booking_payment', (int) $payment['booking_id'], 'Edited payment #' . $paymentId . ' to ' . money($amount) . ' (' . $paymentType . ')');
         flash('success', 'Payment updated.');
-        redirect(list_return_url('bookings.php', ['expand' => (string) (int) $payment['booking_id'], 'extra' => '']));
+        redirect(list_posted_return_url('bookings.php', ['expand' => (string) (int) $payment['booking_id'], 'extra' => '']));
     }
 
     if ($postAction === 'delete_payment') {
@@ -233,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'Deleted payment #' . $paymentId . ' (' . ($payment['payment_type'] ?? '') . ' ' . money($payment['amount']) . ')'
         );
         flash('success', 'Payment entry deleted. Remaining amount has been updated.');
-        redirect(list_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => ''], 'list'));
+        redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
     if ($postAction === 'delete') {
@@ -1041,8 +1041,9 @@ require __DIR__ . '/../includes/header.php';
                             <td><?= e($pay['notes'] ?: '') ?></td>
                             <td class="actions">
                               <?php if (can_delete()): ?>
-                              <form method="post" style="display:inline">
+                              <form method="post" action="<?= e(base_url(list_return_url('bookings.php', [], ''))) ?>" style="display:inline">
                                 <?= csrf_field() ?>
+                                <?= list_return_hidden('bookings.php') ?>
                                 <input type="hidden" name="action" value="delete_payment">
                                 <input type="hidden" name="payment_id" value="<?= (int) $pay['id'] ?>">
                                 <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this payment entry? It will be removed from the booking and the ledger.">Delete</button>
@@ -1052,8 +1053,9 @@ require __DIR__ . '/../includes/header.php';
                           </tr>
                           <tr class="row-detail" id="<?= e($payEditId) ?>" hidden>
                             <td colspan="6">
-                              <form method="post" class="form-grid" style="padding:0">
+                              <form method="post" class="form-grid" style="padding:0" action="<?= e(base_url(list_return_url('bookings.php', [], ''))) ?>">
                                 <?= csrf_field() ?>
+                                <?= list_return_hidden('bookings.php') ?>
                                 <input type="hidden" name="action" value="edit_payment">
                                 <input type="hidden" name="payment_id" value="<?= (int) $pay['id'] ?>">
                                 <div>

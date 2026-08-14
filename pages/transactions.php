@@ -173,8 +173,9 @@ function render_txn_column(PDO $pdo, array $data, string $type, string $pagePara
                     <?php if ($mgmtPage): ?>
                       <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/' . $mgmtPage[0])) ?>">Manage in <?= e($mgmtPage[1]) ?></a>
                       <?php if ($bookingMatch && empty($bookingMatch['linked']) && can_delete()): ?>
-                      <form method="post" style="display:inline">
+                      <form method="post" action="<?= e(base_url(list_return_url('transactions.php', [], ''))) ?>" style="display:inline">
                         <?= csrf_field() ?>
+                        <?= list_return_hidden('transactions.php', $anchor) ?>
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
                         <button class="btn btn-danger btn-sm" type="submit" data-confirm="This booking credit is not attached to a booking payment. Delete this extra ledger row?">Delete</button>
@@ -183,8 +184,9 @@ function render_txn_column(PDO $pdo, array $data, string $type, string $pagePara
                     <?php else: ?>
                       <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
                       <?php if (can_delete()): ?>
-                      <form method="post" style="display:inline">
+                      <form method="post" action="<?= e(base_url(list_return_url('transactions.php', [], ''))) ?>" style="display:inline">
                         <?= csrf_field() ?>
+                        <?= list_return_hidden('transactions.php', $anchor) ?>
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
                         <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this transaction?">Delete</button>
@@ -317,14 +319,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($postAction === 'delete') {
         if (!can_delete()) {
             flash('error', 'Only admins can delete transactions.');
-            redirect(list_return_url('transactions.php'));
+            redirect(list_posted_return_url('transactions.php'));
         }
         $delId = (int) post('id', 0);
         $linkedBooking = $pdo->prepare('SELECT id FROM booking_payments WHERE transaction_id = ? LIMIT 1');
         $linkedBooking->execute([$delId]);
         if ($linkedBooking->fetchColumn()) {
             flash('error', 'This entry belongs to a booking. Delete it from Bookings.');
-            redirect(list_return_url('transactions.php'));
+            redirect(list_posted_return_url('transactions.php'));
         }
         $stmt = $pdo->prepare('SELECT partner_id, txn_type FROM transactions WHERE id = ?');
         $stmt->execute([$delId]);
@@ -347,7 +349,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             sync_partner_advance($pdo, (int) $partnerId);
         }
         flash('success', 'Transaction deleted.');
-        redirect(list_return_url('transactions.php', [], $delType === 'debit' ? 'debit' : 'credit'));
+        redirect(list_posted_return_url('transactions.php', [], $delType === 'debit' ? 'debit' : 'credit'));
     }
 }
 

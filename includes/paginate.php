@@ -41,9 +41,40 @@ function list_return_url(string $pageFile, array $extra = [], string $anchor = '
 {
     $query = list_preserved_query($extra, ['action', 'id']);
     unset($query['action'], $query['id']);
-    $qs = http_build_query(array_filter($query, static fn($v) => $v !== null && $v !== ''));
+    $qs = http_build_query(array_filter($query, static fn($v) => $v !== null && $v !== '' && !is_array($v)));
     $hash = $anchor !== '' ? '#' . $anchor : '';
     return 'pages/' . $pageFile . ($qs !== '' ? '?' . $qs : '') . $hash;
+}
+
+function list_return_hidden(string $pageFile, string $anchor = 'list'): string
+{
+    return '<input type="hidden" name="return_to" value="' . e(list_return_url($pageFile, [], $anchor)) . '">';
+}
+
+function list_posted_return_url(string $pageFile, array $extra = [], string $anchor = 'list'): string
+{
+    $posted = trim(str_replace(["\r", "\n"], '', (string) post('return_to', '')));
+    $query = [];
+    $hash = $anchor;
+    $pattern = '#^pages/' . preg_quote($pageFile, '#') . '(?:\?([^#]*))?(?:#([A-Za-z0-9_-]+))?$#';
+    if (preg_match($pattern, $posted, $m)) {
+        parse_str($m[1] ?? '', $query);
+        if (!empty($m[2])) {
+            $hash = $m[2];
+        }
+    } else {
+        $query = list_preserved_query([], ['action', 'id']);
+    }
+    foreach ($extra as $k => $v) {
+        if ($v === null || $v === '') {
+            unset($query[$k]);
+        } else {
+            $query[$k] = (string) $v;
+        }
+    }
+    unset($query['action'], $query['id']);
+    $qs = http_build_query(array_filter($query, static fn($v) => $v !== null && $v !== '' && !is_array($v)));
+    return 'pages/' . $pageFile . ($qs !== '' ? '?' . $qs : '') . ($hash !== '' ? '#' . $hash : '');
 }
 
 /**
