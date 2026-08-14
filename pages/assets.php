@@ -47,7 +47,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/assets.php');
     }
     if ($postAction === 'delete') {
-        $pdo->prepare('DELETE FROM assets WHERE id = ?')->execute([(int) post('id', 0)]);
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete assets.');
+            redirect('pages/assets.php');
+        }
+        $delId = (int) post('id', 0);
+        $rowStmt = $pdo->prepare('SELECT * FROM assets WHERE id = ?');
+        $rowStmt->execute([$delId]);
+        $asset = $rowStmt->fetch();
+        if ($asset) {
+            delete_ledger_for_record(
+                $pdo,
+                (int) $asset['company_id'],
+                'general',
+                'asset_purchase',
+                (float) $asset['purchase_value'],
+                'Asset purchase — ' . $asset['name']
+            );
+            $pdo->prepare('DELETE FROM assets WHERE id = ?')->execute([$delId]);
+            audit_log($pdo, 'delete', 'asset', $delId, 'Deleted asset ' . $asset['name']);
+        }
         flash('success', 'Asset deleted.');
         redirect('pages/assets.php');
     }
@@ -208,10 +227,12 @@ require __DIR__ . '/../includes/header.php';
               <td class="num"><?= money($a['current_value'] ?? $a['purchase_value']) ?></td>
               <td class="actions">
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/assets.php?action=edit&id=' . $a['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" onsubmit="return confirm('Delete asset?')">
+                <?php if (can_delete()): ?>
+                <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this asset and its purchase ledger entry?">Delete</button>
                 </form>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

@@ -57,7 +57,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/deposits.php');
     }
     if ($postAction === 'delete') {
-        $pdo->prepare('DELETE FROM deposits WHERE id = ?')->execute([(int) post('id', 0)]);
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete deposits.');
+            redirect('pages/deposits.php');
+        }
+        $delId = (int) post('id', 0);
+        $rowStmt = $pdo->prepare('SELECT * FROM deposits WHERE id = ?');
+        $rowStmt->execute([$delId]);
+        $deposit = $rowStmt->fetch();
+        if ($deposit) {
+            delete_ledger_for_record(
+                $pdo,
+                (int) $deposit['company_id'],
+                'general',
+                'deposit',
+                (float) $deposit['amount'],
+                'Deposit placed — ' . $deposit['title'],
+                $deposit['bank_account_id'] ? (int) $deposit['bank_account_id'] : null
+            );
+            $pdo->prepare('DELETE FROM deposits WHERE id = ?')->execute([$delId]);
+            audit_log($pdo, 'delete', 'deposit', $delId, 'Deleted deposit ' . $deposit['title']);
+        }
         flash('success', 'Deposit deleted.');
         redirect('pages/deposits.php');
     }
@@ -228,10 +248,12 @@ require __DIR__ . '/../includes/header.php';
               <td><?= status_chip($d['status']) ?></td>
               <td class="actions">
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/deposits.php?action=edit&id=' . $d['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" onsubmit="return confirm('Delete deposit?')">
+                <?php if (can_delete()): ?>
+                <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this deposit and its bank ledger entry?">Delete</button>
                 </form>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>

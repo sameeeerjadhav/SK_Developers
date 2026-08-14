@@ -40,10 +40,12 @@ function render_partner_rows(PDO $pdo, array $partners, array $partnerTxns): voi
               <td class="num"><?= money($p['advance_amount']) ?></td>
               <td class="actions">
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/partners.php?action=edit&id=' . $p['id'])) ?>">Edit</a>
-                <form method="post" style="display:inline" onsubmit="return confirm('Delete partner?')">
+                <?php if (can_delete()): ?>
+                <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int) $p['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete partner? Capital/advance ledger entries stay.">Delete</button>
                 </form>
+                <?php endif; ?>
               </td>
             </tr>
             <tr class="row-detail" id="<?= e($detailId) ?>" hidden>
@@ -87,6 +89,10 @@ function render_partner_rows(PDO $pdo, array $partners, array $partnerTxns): voi
                     <div>
                       <label>Date</label>
                       <input type="date" name="txn_date" required value="<?= e(date('Y-m-d')) ?>">
+                    </div>
+                    <div class="full">
+                      <label>Project (optional — so it shows on that project)</label>
+                      <select name="project_id"><?= project_options($pdo, (int) ($p['company_id'] ?? 0) ?: null) ?></select>
                     </div>
                     <div class="full">
                       <label>Bank account (optional)</label>
@@ -142,6 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $amount = (float) post('amount', 0);
         $txnDate = post('txn_date', date('Y-m-d'));
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
+        $projectId = post('project_id') !== '' ? (int) post('project_id') : null;
         $description = post('description', '');
 
         if (!$partnerId || !isset(PARTNER_ENTRY_MAP[$entryType]) || $amount <= 0) {
@@ -155,12 +162,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('error', 'Partner must have a company assigned before recording entries.');
             redirect('pages/partners.php');
         }
+        if ($projectId) {
+            $pj = $pdo->prepare('SELECT id FROM projects WHERE id = ? AND company_id = ?');
+            $pj->execute([$projectId, (int) $partnerRow['company_id']]);
+            if (!$pj->fetchColumn()) {
+                flash('error', 'Choose a project that belongs to this partner\'s company.');
+                redirect('pages/partners.php');
+            }
+        }
         [$section, $slug, $label] = PARTNER_ENTRY_MAP[$entryType];
         $catId = category_id_by_slug($pdo, $section, $slug);
         $txnType = $section === 'credit' ? 'credit' : 'debit';
         $txnId = create_transaction(
             $pdo, (int) $partnerRow['company_id'], (int) $catId, $txnType, $amount, $txnDate,
-            null, $bankAccountId, $partnerId, null, $description ?: ($label . ' — ' . $partnerRow['name']),
+            $projectId, $bankAccountId, $partnerId, null, $description ?: ($label . ' — ' . $partnerRow['name']),
             current_user()['id'] ?? null
         );
         audit_log($pdo, 'create', 'transaction', $txnId, $label . ': ' . $partnerRow['name'] . ' — ' . money($amount));
@@ -170,8 +185,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/partners.php');
     }
     if ($postAction === 'delete') {
-        $stmt = $pdo->prepare('DELETE FROM partners WHERE id = ?');
-        $stmt->execute([(int) post('id', 0)]);
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete partners.');
+            redirect('pages/partners.php');
+        }
+        $delId = (int) post('id', 0);
+        $pdo->prepare('DELETE FROM partners WHERE id = ?')->execute([$delId]);
+        audit_log($pdo, 'delete', 'partner', $delId, 'Deleted partner #' . $delId);
         flash('success', 'Partner deleted.');
         redirect('pages/partners.php');
     }

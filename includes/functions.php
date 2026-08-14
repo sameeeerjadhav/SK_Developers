@@ -702,6 +702,55 @@ function uploads_dir(): string
     return $dir;
 }
 
+/** Deletes ledger rows and their attachments. */
+function delete_transactions_by_ids(PDO $pdo, array $ids): int
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (!$ids) {
+        return 0;
+    }
+    $in = implode(',', array_fill(0, count($ids), '?'));
+    try {
+        $atts = $pdo->prepare("SELECT stored_name FROM attachments WHERE transaction_id IN ($in)");
+        $atts->execute($ids);
+        foreach ($atts->fetchAll() as $att) {
+            $path = uploads_dir() . '/' . $att['stored_name'];
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
+        $pdo->prepare("DELETE FROM attachments WHERE transaction_id IN ($in)")->execute($ids);
+    } catch (Throwable $e) {
+    }
+    $pdo->prepare("DELETE FROM transactions WHERE id IN ($in)")->execute($ids);
+    return count($ids);
+}
+
+/** Removes the ledger row created when an asset/deposit/loan was posted (matched by description). */
+function delete_ledger_for_record(
+    PDO $pdo,
+    int $companyId,
+    string $section,
+    string $slug,
+    float $amount,
+    string $description,
+    ?int $bankAccountId = null
+): int {
+    $catId = category_id_by_slug($pdo, $section, $slug);
+    if (!$catId || $description === '') {
+        return 0;
+    }
+    $sql = 'SELECT id FROM transactions WHERE company_id = ? AND category_id = ? AND amount = ? AND description = ?';
+    $params = [$companyId, $catId, $amount, $description];
+    if ($bankAccountId) {
+        $sql .= ' AND bank_account_id = ?';
+        $params[] = $bankAccountId;
+    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return delete_transactions_by_ids($pdo, $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
 function save_transaction_uploads(PDO $pdo, int $transactionId, array $files, ?int $userId): int
 {
     if (empty($files['name']) || !is_array($files['name'])) {
@@ -842,11 +891,9 @@ function refresh_borrower_outstandings(PDO $pdo, int $loanId): void
         if ($loanAmt !== null) {
             $outstanding = max(0, round($loanAmt - $principalPaid, 2));
             $upd->execute([$outstanding, $bid]);
-        } elseif ($principalPaid > 0 && $b['outstanding_amount'] !== null) {
-            // No loan_amount set — reduce stored outstanding by principal paid (floor at 0)
-            $outstanding = max(0, round((float) $b['outstanding_amount'] - $principalPaid, 2));
-            $upd->execute([$outstanding, $bid]);
         }
+        // No loan_amount: leave outstanding as entered. Do not subtract principal from
+        // the stored figure on every page load — that would shrink it repeatedly.
     }
 }
 

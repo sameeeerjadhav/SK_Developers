@@ -35,7 +35,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/bank-accounts.php');
     }
     if ($postAction === 'delete') {
-        $pdo->prepare('DELETE FROM bank_accounts WHERE id = ?')->execute([(int) post('id', 0)]);
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete bank accounts.');
+            redirect('pages/bank-accounts.php');
+        }
+        $delId = (int) post('id', 0);
+        $pdo->prepare('DELETE FROM bank_accounts WHERE id = ?')->execute([$delId]);
+        audit_log($pdo, 'delete', 'bank_account', $delId, 'Deleted bank account #' . $delId);
         flash('success', 'Bank account deleted.');
         redirect('pages/bank-accounts.php');
     }
@@ -141,10 +147,12 @@ require __DIR__ . '/../includes/header.php';
               <td class="actions">
                 <a class="btn btn-primary btn-sm" href="<?= e(base_url('pages/bank-account-view.php?id=' . $a['id'])) ?>">Statement</a>
                 <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/bank-accounts.php?action=edit&id=' . $a['id'])) ?>">Edit</a>
+                <?php if (can_delete()): ?>
                 <form method="post" style="display:inline">
                   <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
-                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete account?">Delete</button>
+                  <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this bank account? Linked transactions stay but lose the account link.">Delete</button>
                 </form>
+                <?php endif; ?>
               </td>
             </tr>
           <?php endforeach; ?>
