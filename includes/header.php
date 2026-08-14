@@ -15,7 +15,7 @@ $nav = [
     ]],
     ['label' => 'Organisation', 'items' => [
         ['href' => 'pages/companies.php', 'label' => 'Companies', 'icon' => 'company', 'match' => ['companies.php']],
-        ['href' => 'pages/projects.php', 'label' => 'Projects', 'icon' => 'project', 'match' => ['projects.php', 'project-view.php']],
+        ['href' => 'pages/projects.php', 'label' => 'Projects', 'icon' => 'project', 'match' => ['projects.php', 'project-view.php', 'project-entries.php']],
     ]],
     ['label' => 'General Topics', 'items' => [
         ['href' => 'pages/investments.php', 'label' => 'Investment', 'icon' => 'invest', 'match' => ['investments.php']],

@@ -288,6 +288,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($projectId) {
+            if (post('from', '') === 'entries' || get('from', '') === 'entries') {
+                redirect('pages/project-entries.php?id=' . $projectId);
+            }
             redirect('pages/project-view.php?id=' . $projectId);
         }
         redirect('pages/transactions.php');
@@ -373,7 +376,18 @@ if ($action === 'add' || $action === 'edit') {
 
     $pageTitle = $action === 'edit' ? 'Edit transaction' : 'Add transaction';
     $pageSub = 'Record credit (in) or debit (land / expense) against a company and project.';
-    $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/transactions.php')) . '">Back</a>';
+    $fromEntries = get('from', '') === 'entries';
+    $backHref = 'pages/transactions.php';
+    $returnProjectId = (int) get('project_id', 0);
+    if ($returnProjectId <= 0 && $fromEntries) {
+        $returnProjectId = $preProject;
+    }
+    if ($returnProjectId > 0) {
+        $backHref = $fromEntries
+            ? 'pages/project-entries.php?id=' . $returnProjectId
+            : 'pages/project-view.php?id=' . $returnProjectId;
+    }
+    $pageActions = '<a class="btn btn-outline" href="' . e(base_url($backHref)) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
     <div class="card">
@@ -381,6 +395,9 @@ if ($action === 'add' || $action === 'edit') {
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="id" value="<?= (int) ($txn['id'] ?? 0) ?>">
+        <?php if ($fromEntries): ?>
+        <input type="hidden" name="from" value="entries">
+        <?php endif; ?>
         <div>
           <label>Company</label>
           <select name="company_id" id="company_id" required

@@ -542,7 +542,18 @@ table.data th.select-col, table.data td.select-col { width: 2.2rem; text-align: 
 }
 .company-card .meta { font-size: 0.8rem; color: var(--muted); }
 
-.ledger-block { margin-bottom: 1.25rem; }
+.ledger-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+.ledger-grid .ledger-block.expense {
+  grid-column: 1 / -1;
+}
+.ledger-block .table-wrap table.data {
+  min-width: 0;
+}
 .ledger-block h3 {
   margin: 0 0 0.65rem; font-size: 0.85rem; font-weight: 800;
   text-transform: uppercase; letter-spacing: 0.04em;
@@ -718,7 +729,8 @@ table.data th.select-col, table.data td.select-col { width: 2.2rem; text-align: 
     justify-content: center;
   }
 
-  .grid-2, .grid-3, .txn-split { grid-template-columns: 1fr; }
+  .grid-2, .grid-3, .txn-split, .ledger-grid { grid-template-columns: 1fr; }
+  .ledger-grid .ledger-block.expense { grid-column: auto; }
   .content {
     padding: 0.95rem clamp(0.85rem, 3vw, 1.1rem) 1.5rem;
   }
