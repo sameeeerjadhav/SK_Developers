@@ -141,7 +141,7 @@ function render_txn_column(PDO $pdo, array $data, string $type, string $pagePara
                 if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
                     $bookingMatch = booking_match_for_transaction($pdo, $row);
                     $bookingId = (int) $bookingMatch['booking_id'];
-                    $mgmtPage = ['bookings.php' . ($bookingId ? ('?expand=' . $bookingId) : ''), 'Bookings'];
+                    $mgmtPage = [booking_manage_href($bookingMatch, (int) $row['id']), 'Bookings'];
                 } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
                     $mgmtPage = ['investments.php', 'Investments'];
                 }

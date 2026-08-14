@@ -559,6 +559,20 @@ $filterProject = (int) get('project_id', 0);
 $filterStatus = get('status', '');
 $q = get('q', '');
 $expandId = (int) get('expand', 0);
+$extraTxnId = (int) get('extra', 0);
+$extraTxn = null;
+if ($extraTxnId > 0) {
+    $extraStmt = $pdo->prepare('SELECT id, amount, txn_date, description FROM transactions WHERE id = ?');
+    $extraStmt->execute([$extraTxnId]);
+    $extraTxn = $extraStmt->fetch() ?: null;
+    if ($extraTxn) {
+        $linkedStmt = $pdo->prepare('SELECT id FROM booking_payments WHERE transaction_id = ? LIMIT 1');
+        $linkedStmt->execute([$extraTxnId]);
+        if ($linkedStmt->fetchColumn()) {
+            $extraTxn = null;
+        }
+    }
+}
 $filterFrom = get('from', '');
 $filterTo = get('to', '');
 [$fromMonth, $toMonth, $month, $year] = period_from_request();
@@ -993,6 +1007,12 @@ require __DIR__ . '/../includes/header.php';
             </tr>
             <tr class="row-detail" id="<?= e($detailId) ?>" <?= $expandId === (int) $b['id'] ? '' : 'hidden' ?>>
               <td colspan="7">
+                <?php if ($extraTxn && $expandId === (int) $b['id']): ?>
+                  <div class="highlight-box" style="border-color:#fde68a;background:#fffbeb;margin-bottom:1rem">
+                    <strong>You opened this from an extra Transactions row, not from a payment listed below.</strong>
+                    <p style="margin:0.4rem 0 0">This booking has only one <?= money($extraTxn['amount']) ?> payment<?= !empty($extraTxn['txn_date']) ? ' on ' . e(format_date($extraTxn['txn_date'])) : '' ?>. The other Transactions credit is a duplicate on the ledger. Go back to Transactions and delete the row labelled <strong>Extra ledger row</strong>. Do not delete the <?= money($extraTxn['amount']) ?> line in this list unless the customer did not actually pay it.</p>
+                  </div>
+                <?php endif; ?>
                 <table class="detail-table" style="margin-bottom:1rem">
                   <tbody>
                     <tr><td>Phone</td><td><?= e($b['customer_phone'] ?: '—') ?></td></tr>

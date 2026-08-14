@@ -642,6 +642,19 @@ function booking_match_for_transaction(PDO $pdo, array $row): array
     return ['booking_id' => 0, 'linked' => false];
 }
 
+function booking_manage_href(array $match, int $txnId = 0): string
+{
+    $id = (int) ($match['booking_id'] ?? 0);
+    if ($id <= 0) {
+        return 'bookings.php';
+    }
+    $href = 'bookings.php?expand=' . $id;
+    if (empty($match['linked']) && $txnId > 0) {
+        $href .= '&extra=' . $txnId;
+    }
+    return $href;
+}
+
 function sync_booking_ledger_project(PDO $pdo, int $bookingId, ?int $projectId): void
 {
     $pdo->prepare(
