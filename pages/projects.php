@@ -6,6 +6,28 @@ require_login();
 $action = get('action', 'list');
 $id = (int) get('id', 0);
 $filterCompany = (int) get('company_id', 0);
+$filterProject = (int) get('project_id', 0);
+$filterStatus = get('status', '');
+$q = get('q', '');
+$filterFrom = get('from', '');
+$filterTo = get('to', '');
+[$fromMonth, $toMonth, $month, $year] = period_from_request();
+if ($month !== '' || $year !== '') {
+    if ($filterFrom === '' && $filterTo === '') {
+        $filterFrom = $fromMonth ?: '';
+        $filterTo = $toMonth ?: '';
+    }
+}
+$txnFrom = $filterFrom !== '' ? $filterFrom : null;
+$txnTo = $filterTo !== '' ? $filterTo : null;
+
+if ($filterCompany && $filterProject) {
+    $pjOk = $pdo->prepare('SELECT id FROM projects WHERE id = ? AND company_id = ?');
+    $pjOk->execute([$filterProject, $filterCompany]);
+    if (!$pjOk->fetchColumn()) {
+        $filterProject = 0;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
@@ -143,11 +165,24 @@ $pageTitle = 'Projects';
 $pageSub = 'Projects across main company and all sub companies.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/projects.php?action=add' . ($filterCompany ? '&company_id=' . $filterCompany : ''))) . '">+ Add project</a>';
 
-$sql = 'SELECT p.*, c.name AS company_name FROM projects p JOIN companies c ON c.id = p.company_id';
+$sql = 'SELECT p.*, c.name AS company_name FROM projects p JOIN companies c ON c.id = p.company_id WHERE 1=1';
 $params = [];
 if ($filterCompany) {
-    $sql .= ' WHERE p.company_id = ?';
+    $sql .= ' AND p.company_id = ?';
     $params[] = $filterCompany;
+}
+if ($filterProject) {
+    $sql .= ' AND p.id = ?';
+    $params[] = $filterProject;
+}
+if ($filterStatus !== '' && in_array($filterStatus, ['planning', 'active', 'completed', 'on_hold'], true)) {
+    $sql .= ' AND p.status = ?';
+    $params[] = $filterStatus;
+}
+if ($q !== '') {
+    $sql .= ' AND (p.name LIKE ? OR p.location LIKE ? OR c.name LIKE ?)';
+    $like = '%' . $q . '%';
+    array_push($params, $like, $like, $like);
 }
 $sql .= ' ORDER BY p.created_at DESC';
 $stmt = $pdo->prepare($sql);
@@ -159,18 +194,49 @@ require __DIR__ . '/../includes/header.php';
 
 <form class="filters" method="get">
   <div class="field">
+    <label>Search</label>
+    <input type="search" name="q" value="<?= e($q) ?>" placeholder="Project, location, company…">
+  </div>
+  <div class="field">
     <label>Company</label>
-    <select name="company_id" onchange="this.form.submit()">
-      <option value="">All companies</option>
-      <?php
-      $cos = $pdo->query('SELECT id, name FROM companies ORDER BY type, name')->fetchAll();
-      foreach ($cos as $co):
-      ?>
-        <option value="<?= (int) $co['id'] ?>" <?= $filterCompany === (int)$co['id'] ? 'selected' : '' ?>><?= e($co['name']) ?></option>
+    <select name="company_id" onchange="this.form.project_id.value=''; this.form.submit()">
+      <option value="">All</option>
+      <?php foreach ($pdo->query('SELECT id, name FROM companies ORDER BY type, name') as $co): ?>
+        <option value="<?= (int) $co['id'] ?>" <?= $filterCompany === (int) $co['id'] ? 'selected' : '' ?>><?= e($co['name']) ?></option>
       <?php endforeach; ?>
     </select>
   </div>
+  <div class="field">
+    <label>Project</label>
+    <select name="project_id" onchange="this.form.submit()">
+      <?= project_options($pdo, $filterCompany ?: null, $filterProject ?: null) ?>
+    </select>
+  </div>
+  <div class="field">
+    <label>Status</label>
+    <select name="status">
+      <option value="">All</option>
+      <option value="planning" <?= $filterStatus === 'planning' ? 'selected' : '' ?>>Planning</option>
+      <option value="active" <?= $filterStatus === 'active' ? 'selected' : '' ?>>Active</option>
+      <option value="completed" <?= $filterStatus === 'completed' ? 'selected' : '' ?>>Completed</option>
+      <option value="on_hold" <?= $filterStatus === 'on_hold' ? 'selected' : '' ?>>On hold</option>
+    </select>
+  </div>
+  <?= period_filter_fields($month, $year) ?>
+  <div class="field">
+    <label>From</label>
+    <input type="date" name="from" value="<?= e($filterFrom) ?>">
+  </div>
+  <div class="field">
+    <label>To</label>
+    <input type="date" name="to" value="<?= e($filterTo) ?>">
+  </div>
+  <div class="field" style="flex:0">
+    <label>&nbsp;</label>
+    <button class="btn btn-outline" type="submit">Filter</button>
+  </div>
 </form>
+<p class="muted" style="font-size:0.78rem;margin:-0.5rem 0 1rem">Date filters apply to credits, debits and profit in the table. Search, company, project and status filter which projects are listed.</p>
 
 <div class="card">
   <?php if (!$projects): ?>
@@ -191,8 +257,8 @@ require __DIR__ . '/../includes/header.php';
         </thead>
         <tbody>
           <?php foreach ($projects as $p):
-            $credits = sum_transactions($pdo, 'credit', null, (int) $p['id']);
-            $debits = sum_transactions($pdo, 'debit', null, (int) $p['id']);
+            $credits = sum_transactions($pdo, 'credit', null, (int) $p['id'], null, $txnFrom, $txnTo);
+            $debits = sum_transactions($pdo, 'debit', null, (int) $p['id'], null, $txnFrom, $txnTo);
             $profit = $credits - $debits;
           ?>
             <tr>
