@@ -53,19 +53,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     ];
     $mapCats = static function (array $rows): array {
         $out = [];
-        $n = 0;
-        foreach ($rows as $row) {
-            $total = (float) $row['total'];
-            if ($total == 0.0) {
-                continue;
-            }
-            $n++;
+        foreach ($rows as $i => $row) {
             $out[] = [
-                (string) $n,
+                (string) ($i + 1),
                 $row['name'] ?? '',
                 (float) $row['cash_total'],
                 (float) $row['bank_total'],
-                $total,
+                (float) $row['total'],
             ];
         }
         return $out;
@@ -143,19 +137,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
                 'title' => 'Credit by category',
                 'columns' => $catCols,
                 'rows' => $creditRows,
-                'totals' => $creditRows ? ['', 'TOTAL', '', '', $creditTotal] : null,
+                'totals' => ['', 'TOTAL', '', '', $creditTotal],
             ],
             [
                 'title' => 'Debit by category (land + partner outflows)',
                 'columns' => $catCols,
                 'rows' => $debitRows,
-                'totals' => $debitRows ? ['', 'TOTAL', '', '', $debitTotal] : null,
+                'totals' => ['', 'TOTAL', '', '', $debitTotal],
             ],
             [
                 'title' => 'Expenses by category',
                 'columns' => $catCols,
                 'rows' => $expenseRows,
-                'totals' => $expenseRows ? ['', 'TOTAL', '', '', $expenseTotal] : null,
+                'totals' => ['', 'TOTAL', '', '', $expenseTotal],
             ],
             [
                 'title' => 'Project ledger',
@@ -174,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             ],
         ],
         'notes' => [
-            'System-generated project report. Category tables omit zero-value rows. Ledger is the full project history.',
+            'System-generated project report. Category tables include every particular (including ₹0). Ledger is the full project history.',
             'Profit = credit − debit (land + partner advance return / capital withdrawal) − expenses.',
             'Confidential — internal use only.',
         ],
