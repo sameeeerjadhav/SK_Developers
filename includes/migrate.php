@@ -402,12 +402,10 @@ function ensure_v2_schema(PDO $pdo): void
     }
 
     // ---- Partner Capital / Advance categories (credit + debit mirror) ----
-    // Advance paid to a partner is money out (debit/general). Return is money in (credit).
-    // Never rename partner_advance -> partner_advance_return: that would treat a payment as a return.
+    // Partner Advance is money in (credit). Returning it is money out (debit/general).
     migrate_partner_advance_categories($pdo);
-    repair_mislabelled_partner_advance_returns($pdo);
-    $pdo->exec("UPDATE transactions t JOIN categories c ON c.id = t.category_id SET t.txn_type = 'debit' WHERE c.slug = 'partner_advance' AND t.txn_type <> 'debit'");
-    $pdo->exec("UPDATE transactions t JOIN categories c ON c.id = t.category_id SET t.txn_type = 'credit' WHERE c.slug = 'partner_advance_return' AND t.txn_type <> 'credit'");
+    $pdo->exec("UPDATE transactions t JOIN categories c ON c.id = t.category_id SET t.txn_type = 'credit' WHERE c.slug = 'partner_advance' AND t.txn_type <> 'credit'");
+    $pdo->exec("UPDATE transactions t JOIN categories c ON c.id = t.category_id SET t.txn_type = 'debit' WHERE c.slug = 'partner_advance_return' AND t.txn_type <> 'debit'");
 
     $partnerCols = $pdo->query("SHOW COLUMNS FROM partners")->fetchAll(PDO::FETCH_COLUMN);
     if (!in_array('advance_amount', $partnerCols, true)) {
@@ -522,10 +520,10 @@ function migrate_partner_advance_categories(PDO $pdo): void
         $pdo->prepare('DELETE FROM categories WHERE id = ?')->execute([(int) $fromId]);
     };
 
-    $advanceId = $ensure($pdo, 'general', 'Partner Advance', 'partner_advance', 55);
-    $returnId = $ensure($pdo, 'credit', 'Partner Advance Return', 'partner_advance_return', 23);
-    $moveIfWrongSection($pdo, 'partner_advance', 'credit', $advanceId);
-    $moveIfWrongSection($pdo, 'partner_advance_return', 'general', $returnId);
+    $advanceId = $ensure($pdo, 'credit', 'Partner Advance', 'partner_advance', 22);
+    $returnId = $ensure($pdo, 'general', 'Partner Advance Return', 'partner_advance_return', 55);
+    $moveIfWrongSection($pdo, 'partner_advance', 'general', $advanceId);
+    $moveIfWrongSection($pdo, 'partner_advance_return', 'credit', $returnId);
 
     foreach ([
         ['credit', 'Partner Capital', 'partner_capital', 21],
@@ -538,27 +536,6 @@ function migrate_partner_advance_categories(PDO $pdo): void
             $ins->execute([$catSection, $catName, $catSlug, $catSort]);
         }
     }
-}
-
-/** Rows still tagged Partner Advance Return but stored as debit were payments, not returns. */
-function repair_mislabelled_partner_advance_returns(PDO $pdo): void
-{
-    $adv = $pdo->prepare("SELECT id FROM categories WHERE slug = 'partner_advance' AND section = 'general' LIMIT 1");
-    $adv->execute();
-    $advanceId = $adv->fetchColumn();
-    $ret = $pdo->prepare("SELECT id FROM categories WHERE slug = 'partner_advance_return' LIMIT 1");
-    $ret->execute();
-    $returnId = $ret->fetchColumn();
-    if (!$advanceId || !$returnId) {
-        return;
-    }
-    $pdo->prepare('UPDATE transactions SET category_id = ?, txn_type = ? WHERE category_id = ? AND txn_type = ?')
-        ->execute([(int) $advanceId, 'debit', (int) $returnId, 'debit']);
-    $pdo->prepare(
-        "UPDATE transactions SET category_id = ?, txn_type = ?
-         WHERE category_id = ? AND txn_type = 'credit'
-           AND (description LIKE 'Advance given%' OR description LIKE 'Advance paid to partner%')"
-    )->execute([(int) $advanceId, 'debit', (int) $returnId]);
 }
 
 function migrate_category_section(PDO $pdo, string $slug, string $fromSection, string $toSection, int $sortOrder): void

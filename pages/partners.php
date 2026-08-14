@@ -6,8 +6,8 @@ require_login();
 const PARTNER_ENTRY_MAP = [
     'partner_capital' => ['credit', 'partner_capital', 'Capital added'],
     'partner_capital_withdrawal' => ['general', 'partner_capital_withdrawal', 'Capital withdrawn'],
-    'partner_advance' => ['general', 'partner_advance', 'Advance paid to partner'],
-    'partner_advance_return' => ['credit', 'partner_advance_return', 'Advance returned by partner'],
+    'partner_advance' => ['credit', 'partner_advance', 'Partner advance'],
+    'partner_advance_return' => ['general', 'partner_advance_return', 'Advance returned'],
 ];
 
 /** Renders the partner directory table with an expandable per-partner ledger + quick entry form. */

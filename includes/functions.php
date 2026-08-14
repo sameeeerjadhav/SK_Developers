@@ -648,7 +648,8 @@ function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, 
         + sum_by_category_slug($pdo, 'credit', 'daily_credit', $companyId, $from, $to)
         + sum_by_category_slug($pdo, 'credit', 'monthly_credit', $companyId, $from, $to);
     $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId, $from, $to)
-        + sum_by_category_slug($pdo, 'credit', 'partner_capital', $companyId, $from, $to);
+        + sum_by_category_slug($pdo, 'credit', 'partner_capital', $companyId, $from, $to)
+        + sum_by_category_slug($pdo, 'credit', 'partner_advance', $companyId, $from, $to);
     $creditBooking = sum_by_category_slug($pdo, 'credit', 'booking', $companyId, $from, $to);
     $expenses = sum_transactions($pdo, 'debit', $companyId, null, 'expense', $from, $to)
         + sum_transactions($pdo, 'debit', $companyId, null, 'land_purchase', $from, $to);
@@ -1121,8 +1122,8 @@ function sync_partner_advance(PDO $pdo, int $partnerId): void
 {
     $stmt = $pdo->prepare(
         "SELECT
-            COALESCE(SUM(CASE WHEN c.slug = 'partner_advance' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END),0) -
-            COALESCE(SUM(CASE WHEN c.slug = 'partner_advance_return' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END),0) AS total
+            COALESCE(SUM(CASE WHEN c.slug = 'partner_advance' AND t.txn_type = 'credit' THEN t.amount ELSE 0 END),0) -
+            COALESCE(SUM(CASE WHEN c.slug = 'partner_advance_return' AND t.txn_type = 'debit' THEN t.amount ELSE 0 END),0) AS total
          FROM transactions t
          JOIN categories c ON c.id = t.category_id
          WHERE t.partner_id = ?"

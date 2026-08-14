@@ -17,7 +17,7 @@ if (!$project) {
 
 $credits = section_breakdown($pdo, $id, 'credit');
 $land = section_breakdown($pdo, $id, 'land_purchase');
-$partnerDebits = slug_breakdown($pdo, $id, ['partner_advance', 'partner_capital_withdrawal']);
+$partnerDebits = slug_breakdown($pdo, $id, ['partner_advance_return', 'partner_capital_withdrawal']);
 $debits = array_merge($land, $partnerDebits);
 $expenses = section_breakdown($pdo, $id, 'expense');
 
@@ -175,7 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ],
         'notes' => [
             'System-generated project report. Category tables omit zero-value rows. Ledger is the full project history.',
-            'Profit = credit − debit (land + partner advance/withdrawal) − expenses.',
+            'Profit = credit − debit (land + partner advance return / capital withdrawal) − expenses.',
             'Confidential — internal use only.',
         ],
     ]);

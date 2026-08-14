@@ -347,7 +347,7 @@ if ($action === 'add' || $action === 'edit') {
     $catGroupStmt = $pdo->query(
         "SELECT id, name, section, slug FROM categories
          WHERE section IN ('credit','land_purchase','expense')
-            OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit','partner_capital_withdrawal','partner_advance'))
+            OR (section = 'general' AND slug IN ('investment_withdrawal','daily_debit','monthly_debit','partner_capital_withdrawal','partner_advance_return'))
          ORDER BY FIELD(section,'credit','land_purchase','expense','general'), sort_order"
     );
     $excludedSlugs = ['booking', 'booking_refund', 'investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'];
