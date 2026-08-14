@@ -3,7 +3,7 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-const PROJECT_TXN_PER_PAGE = 20;
+const PROJECT_TXN_LIMITS = [25, 50, 75, 100];
 
 $id = (int) get('id', 0);
 $stmt = $pdo->prepare(
@@ -48,10 +48,14 @@ foreach ($allTxns as $t) {
 }
 
 $txnCount = count($allTxns);
-$txnPages = max(1, (int) ceil($txnCount / PROJECT_TXN_PER_PAGE));
+$txnLimit = (int) get('limit', 25);
+if (!in_array($txnLimit, PROJECT_TXN_LIMITS, true)) {
+    $txnLimit = 25;
+}
+$txnPages = max(1, (int) ceil($txnCount / $txnLimit));
 $txnPage = min(max(1, (int) get('page', 1)), $txnPages);
-$txnOffset = ($txnPage - 1) * PROJECT_TXN_PER_PAGE;
-$ledgerPage = array_slice($allTxns, $txnOffset, PROJECT_TXN_PER_PAGE);
+$txnOffset = ($txnPage - 1) * $txnLimit;
+$ledgerPage = array_slice($allTxns, $txnOffset, $txnLimit);
 
 $pageTitle = $project['name'];
 $pageSub = ($project['company_type'] === 'main' ? 'Main company' : 'Sub company') . ' · ' . $project['company_name'];
@@ -300,7 +304,16 @@ function render_ledger_rows(array $rows, string $idPrefix, array $txnsByCat): vo
 <div class="card" id="entries" style="margin-top:1rem">
   <div class="card-head">
     <h2 class="card-title">Project entries</h2>
-    <span class="muted" style="font-size:0.8rem"><?= (int) $txnCount ?> <?= $txnCount === 1 ? 'entry' : 'entries' ?></span>
+    <form method="get" action="<?= e(base_url('pages/project-view.php')) ?>#entries" style="display:inline-flex;align-items:center;gap:0.45rem;margin:0">
+      <input type="hidden" name="id" value="<?= (int) $id ?>">
+      <label for="entry-limit" class="muted" style="margin:0;font-size:0.78rem;white-space:nowrap">Show</label>
+      <select id="entry-limit" name="limit" onchange="this.form.submit()" style="width:auto;min-width:4.5rem">
+        <?php foreach (PROJECT_TXN_LIMITS as $opt): ?>
+          <option value="<?= $opt ?>" <?= $txnLimit === $opt ? 'selected' : '' ?>><?= $opt ?></option>
+        <?php endforeach; ?>
+      </select>
+      <span class="muted" style="font-size:0.78rem;white-space:nowrap">per page</span>
+    </form>
   </div>
   <?php if (!$ledgerPage): ?>
     <div class="empty"><strong>No entries yet</strong><p>Add credits (investment, partner, booking…) or expenses for this project.</p></div>
@@ -351,9 +364,13 @@ function render_ledger_rows(array $rows, string $idPrefix, array $txnsByCat): vo
         </tbody>
       </table>
     </div>
-    <?php if ($txnPages > 1):
-        $urlFor = static function (int $p) use ($id): string {
-            return base_url('pages/project-view.php?' . http_build_query(['id' => $id, 'page' => $p]) . '#entries');
+    <?php
+        $urlFor = static function (int $p) use ($id, $txnLimit): string {
+            return base_url('pages/project-view.php?' . http_build_query([
+                'id' => $id,
+                'limit' => $txnLimit,
+                'page' => $p,
+            ]) . '#entries');
         };
         $shownFrom = $txnOffset + 1;
         $shownTo = $txnOffset + count($ledgerPage);
@@ -371,7 +388,6 @@ function render_ledger_rows(array $rows, string $idPrefix, array $txnsByCat): vo
           <span class="btn btn-outline btn-sm" aria-disabled="true">Next →</span>
         <?php endif; ?>
       </div>
-    <?php endif; ?>
   <?php endif; ?>
 </div>
 
