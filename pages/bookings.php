@@ -633,6 +633,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         return ucwords(str_replace('_', ' ', (string) ($r['property_type'] ?? '')));
     };
     $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['payment_ids'] ?? []), fn($id) => $id > 0)));
+    $exportSelectedOnly = post('export_scope', '') !== 'all' && $selectedIds !== [];
     $companyName = 'All companies';
     if ($filterCompany) {
         $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
@@ -646,7 +647,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         $projectName = (string) ($pn->fetchColumn() ?: 'Project #' . $filterProject);
     }
 
-    if ($selectedIds) {
+    if ($exportSelectedOnly) {
         $placeholders = implode(',', array_fill(0, count($selectedIds), '?'));
         $expStmt = $pdo->prepare(
             "SELECT bp.*, cu.name AS customer_name, c.name AS company_name, p.name AS project_name,
@@ -748,8 +749,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     $payRecv = 0.0;
     $payRet = 0.0;
     $n = 0;
+    $paymentsForExport = [];
+    if ($bookings) {
+        $exportBookingIds = array_map(fn($b) => (int) $b['id'], $bookings);
+        $payPh = implode(',', array_fill(0, count($exportBookingIds), '?'));
+        $allPayStmt = $pdo->prepare(
+            "SELECT * FROM booking_payments WHERE booking_id IN ($payPh) ORDER BY payment_date ASC, id ASC"
+        );
+        $allPayStmt->execute($exportBookingIds);
+        foreach ($allPayStmt->fetchAll() as $pay) {
+            $paymentsForExport[(int) $pay['booking_id']][] = $pay;
+        }
+    }
     foreach ($bookings as $b) {
-        foreach ($paymentsByBooking[(int) $b['id']] ?? [] as $pay) {
+        foreach ($paymentsForExport[(int) $b['id']] ?? [] as $pay) {
             $n++;
             $isRecv = ($pay['payment_type'] ?? '') === 'received';
             $amt = (float) $pay['amount'];
@@ -787,6 +800,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             ['Received', $totalReceived, 'money'],
             ['Remaining', $totalRemaining, 'money'],
             ['Bookings', count($bookings), 'int'],
+            ['Payment entries', $n, 'int'],
         ],
         'tables' => [
             [
@@ -827,7 +841,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ],
         'notes' => [
             'System-generated booking register. Sale/received/remaining totals are the full booking history.',
-            'Payment history follows the date filter when one is set.',
+            'Payment history includes every payment for the listed bookings.',
             'Confidential — internal use only.',
         ],
     ]);
@@ -897,10 +911,11 @@ require __DIR__ . '/../includes/header.php';
     <button class="btn btn-outline" type="submit">Filter</button>
   </div>
 </form>
-<p class="muted" style="font-size:0.78rem;margin:-0.5rem 0 1rem">Date filters apply to the payment history shown per booking (used for export) — totals above always reflect the full history.</p>
+<p class="muted" style="font-size:0.78rem;margin:-0.5rem 0 1rem">Date filters apply to the payment history shown per booking. Excel / CSV / PDF always include every payment for the bookings in this list unless you tick only some rows.</p>
 <?php if ($bookings): ?>
 <form id="bookingsExportForm" class="bulk-export-form" method="post">
   <?= csrf_field() ?>
+  <input type="hidden" name="export_scope" value="all">
   <div class="export-toolbar no-print">
     <label class="select-all-label">
       <input type="checkbox" class="select-all-toggle">
@@ -908,9 +923,9 @@ require __DIR__ . '/../includes/header.php';
     </label>
     <span class="selected-count muted">0 selected</span>
     <div class="export-actions">
-      <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv" disabled>Export CSV</button>
-      <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel" disabled>Export Excel</button>
-      <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf" disabled>Export PDF</button>
+      <button class="btn btn-outline btn-sm export-csv-btn" type="submit" name="export_action" value="csv">Export CSV</button>
+      <button class="btn btn-outline btn-sm" type="submit" name="export_action" value="excel">Export Excel</button>
+      <button class="btn btn-outline btn-sm export-pdf-btn" type="submit" name="export_action" value="pdf">Export PDF</button>
     </div>
   </div>
 </form>

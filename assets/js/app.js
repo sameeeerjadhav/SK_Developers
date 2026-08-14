@@ -209,29 +209,33 @@
     preview.value = '₹' + principal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   });
 
-  // Bulk-select export toolbars (Investments, Loan Repayments, etc.)
+  // Bulk-select export toolbars (Investments, Loan Repayments, Bookings, etc.)
   // Checkboxes may live outside the <form> DOM subtree (associated via form="…"
-  // so they can sit inside per-row edit forms without illegally nesting forms),
-  // so lookups use .elements / the .form property instead of querySelectorAll.
+  // so they can sit inside per-row edit forms without illegally nesting forms).
   document.querySelectorAll('form.bulk-export-form').forEach(function (exportForm) {
     var selectAll = exportForm.querySelector('.select-all-toggle');
     var selectedCount = exportForm.querySelector('.selected-count');
     var exportBtns = exportForm.querySelectorAll('[name="export_action"]');
 
     var getCheckboxes = function () {
-      return Array.prototype.filter.call(exportForm.elements, function (el) {
-        return el.classList && el.classList.contains('bulk-checkbox');
+      return Array.prototype.filter.call(document.querySelectorAll('.bulk-checkbox'), function (el) {
+        return el.form === exportForm;
       });
     };
+
+    var scopeInput = exportForm.querySelector('input[name="export_scope"]');
 
     var refreshToolbar = function () {
       var boxes = getCheckboxes();
       var checked = boxes.filter(function (b) { return b.checked; });
       if (selectedCount) selectedCount.textContent = checked.length + ' selected';
-      exportBtns.forEach(function (btn) { btn.disabled = checked.length === 0; });
+      exportBtns.forEach(function (btn) { btn.disabled = false; });
       if (selectAll) {
         selectAll.checked = boxes.length > 0 && checked.length === boxes.length;
         selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
+      }
+      if (scopeInput) {
+        scopeInput.value = (selectAll && selectAll.checked && boxes.length > 0) ? 'all' : 'selected';
       }
     };
 
