@@ -134,8 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ], $landMeta),
         'summary' => [
             ['Credit', $creditTotal, 'money'],
-            ['Land purchase', $landTotal, 'money'],
-            ['Partner debit', $partnerDebitTotal, 'money'],
+            ['Debit (land + partner outflows)', $debitTotal, 'money'],
             ['Expenses', $expenseTotal, 'money'],
             ['Profit', $profit, 'money'],
         ],
@@ -214,8 +213,8 @@ function render_ledger_rows(array $rows, string $idPrefix): void
     <div class="stat-value text-success"><?= money($creditTotal) ?></div>
   </div>
   <div class="stat-card">
-    <div class="stat-label">Land Purchase</div>
-    <div class="stat-value text-danger"><?= money($landTotal) ?></div>
+    <div class="stat-label">Debit</div>
+    <div class="stat-value text-danger"><?= money($debitTotal) ?></div>
   </div>
   <div class="stat-card">
     <div class="stat-label">Expenses</div>
