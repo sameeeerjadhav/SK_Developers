@@ -649,6 +649,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/loan-repayments.php');
 }
 
+$loanPage = paginate_list(array_values($loanGroups));
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
@@ -670,6 +672,7 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </div>
 <form class="filters" method="get">
+  <?= list_limit_hidden() ?>
   <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Company</label>
@@ -723,8 +726,13 @@ require __DIR__ . '/../includes/header.php';
       </div>
     </div>
   </form>
-  <div class="card">
-    <?php render_repayment_loans($pdo, $loanGroups); ?>
+  <div class="card" id="list">
+    <div class="card-head">
+      <h2 class="card-title">Repayments by lender</h2>
+      <?php render_limit_control('loan-repayments.php'); ?>
+    </div>
+    <?php render_repayment_loans($pdo, $loanPage['rows']); ?>
+    <?php render_pager('loan-repayments.php', $loanPage); ?>
   </div>
 <?php endif; ?>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

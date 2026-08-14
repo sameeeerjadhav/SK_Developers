@@ -375,6 +375,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/partners.php');
 }
 
+$list = paginate_list($partners);
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
@@ -382,7 +384,12 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Total advances</div><div class="stat-value"><?= money($totalAdvance) ?></div></div>
   <div class="stat-card"><div class="stat-label">Registered partners</div><div class="stat-value"><?= count($partners) ?></div></div>
 </div>
-<div class="card">
-  <?php render_partner_rows($pdo, $partners, $partnerTxns); ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Partners</h2>
+    <?php render_limit_control('partners.php'); ?>
+  </div>
+  <?php render_partner_rows($pdo, $list['rows'], $partnerTxns); ?>
+  <?php render_pager('partners.php', $list); ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

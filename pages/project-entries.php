@@ -3,8 +3,6 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-const PROJECT_TXN_LIMITS = [25, 50, 75, 100];
-
 $id = (int) get('id', 0);
 $stmt = $pdo->prepare(
     'SELECT p.*, c.name AS company_name, c.type AS company_type
@@ -28,16 +26,7 @@ $allTxnStmt = $pdo->prepare(
 );
 $allTxnStmt->execute([$id]);
 $allTxns = $allTxnStmt->fetchAll();
-
-$txnCount = count($allTxns);
-$txnLimit = (int) get('limit', 25);
-if (!in_array($txnLimit, PROJECT_TXN_LIMITS, true)) {
-    $txnLimit = 25;
-}
-$txnPages = max(1, (int) ceil($txnCount / $txnLimit));
-$txnPage = min(max(1, (int) get('page', 1)), $txnPages);
-$txnOffset = ($txnPage - 1) * $txnLimit;
-$ledgerPage = array_slice($allTxns, $txnOffset, $txnLimit);
+$list = paginate_list($allTxns);
 
 $pageTitle = 'Project entries';
 $pageSub = $project['name'] . ' · ' . (($project['company_type'] === 'main' ? 'Main company' : 'Sub company') . ' · ' . $project['company_name']);
@@ -46,21 +35,12 @@ $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/project-v
 
 require __DIR__ . '/../includes/header.php';
 ?>
-<div class="card" id="entries">
+<div class="card" id="list">
   <div class="card-head">
     <h2 class="card-title">Project entries</h2>
-    <form method="get" action="<?= e(base_url('pages/project-entries.php')) ?>#entries" style="display:inline-flex;align-items:center;gap:0.45rem;margin:0">
-      <input type="hidden" name="id" value="<?= (int) $id ?>">
-      <label for="entry-limit" class="muted" style="margin:0;font-size:0.78rem;white-space:nowrap">Show</label>
-      <select id="entry-limit" name="limit" onchange="this.form.submit()" style="width:auto;min-width:4.5rem">
-        <?php foreach (PROJECT_TXN_LIMITS as $opt): ?>
-          <option value="<?= $opt ?>" <?= $txnLimit === $opt ? 'selected' : '' ?>><?= $opt ?></option>
-        <?php endforeach; ?>
-      </select>
-      <span class="muted" style="font-size:0.78rem;white-space:nowrap">per page</span>
-    </form>
+    <?php render_limit_control('project-entries.php'); ?>
   </div>
-  <?php if (!$ledgerPage): ?>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No entries yet</strong><p>Add credits (investment, partner, booking…) or expenses for this project.</p></div>
   <?php else: ?>
     <div class="table-wrap">
@@ -78,7 +58,7 @@ require __DIR__ . '/../includes/header.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($ledgerPage as $row):
+          <?php foreach ($list['rows'] as $row):
             $mgmtPage = null;
             if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
                 $mgmtPage = ['bookings.php', 'Bookings'];
@@ -109,30 +89,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
-    <?php
-        $urlFor = static function (int $p) use ($id, $txnLimit): string {
-            return base_url('pages/project-entries.php?' . http_build_query([
-                'id' => $id,
-                'limit' => $txnLimit,
-                'page' => $p,
-            ]) . '#entries');
-        };
-        $shownFrom = $txnOffset + 1;
-        $shownTo = $txnOffset + count($ledgerPage);
-    ?>
-      <div class="pager">
-        <?php if ($txnPage > 1): ?>
-          <a class="btn btn-outline btn-sm" href="<?= e($urlFor($txnPage - 1)) ?>">← Prev</a>
-        <?php else: ?>
-          <span class="btn btn-outline btn-sm" aria-disabled="true">← Prev</span>
-        <?php endif; ?>
-        <span class="pager-info">Showing <?= $shownFrom ?>–<?= $shownTo ?> of <?= $txnCount ?> · Page <?= $txnPage ?> of <?= $txnPages ?></span>
-        <?php if ($txnPage < $txnPages): ?>
-          <a class="btn btn-outline btn-sm" href="<?= e($urlFor($txnPage + 1)) ?>">Next →</a>
-        <?php else: ?>
-          <span class="btn btn-outline btn-sm" aria-disabled="true">Next →</span>
-        <?php endif; ?>
-      </div>
+    <?php render_pager('project-entries.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

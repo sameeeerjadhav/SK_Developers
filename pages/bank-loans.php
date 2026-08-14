@@ -488,21 +488,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/bank-loans.php');
 }
 
+$list = paginate_list($loans);
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
   <div class="stat-card"><div class="stat-label">Active outstanding</div><div class="stat-value"><?= money($outstanding) ?></div></div>
   <div class="stat-card"><div class="stat-label">Loans</div><div class="stat-value"><?= count($loans) ?></div></div>
 </div>
-<div class="card">
-  <?php if (!$loans): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Loans</h2>
+    <?php render_limit_control('bank-loans.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No bank loans</strong><p>Register loans against companies or projects.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Lender</th><th>Borrowers</th><th>Company</th><th>Project</th><th class="num">Loan</th><th class="num">Outstanding</th><th class="num">Interest + Charges</th><th>Status</th><th class="actions">Actions</th></tr></thead>
         <tbody>
-          <?php foreach ($loans as $l): ?>
+          <?php foreach ($list['rows'] as $l): ?>
             <tr>
               <td><strong><?= e($l['lender_name']) ?></strong></td>
               <td><?= e(implode(', ', $borrowersByLoan[(int) $l['id']] ?? []) ?: '—') ?></td>
@@ -528,6 +534,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('bank-loans.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

@@ -698,6 +698,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/investments.php');
 }
 
+$fixedList = paginate_list(array_values($fixedCompanies), null, 'fixed_page');
+$regularList = paginate_list(array_values($regularCompanies), null, 'regular_page');
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
@@ -719,6 +722,7 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </div>
 <form class="filters" method="get">
+  <?= list_limit_hidden() ?>
   <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Company</label>
@@ -752,6 +756,12 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </form>
 
+<?php if ($rows): ?>
+  <div class="card-head" id="list" style="justify-content:flex-end;margin-bottom:0.35rem">
+    <?php render_limit_control('investments.php'); ?>
+  </div>
+<?php endif; ?>
+
 <?php if (!$rows): ?>
   <div class="card">
     <div class="empty"><strong>No investments yet</strong><p>Add an investment (credit) or a withdrawal (debit) entry.</p></div>
@@ -772,7 +782,7 @@ require __DIR__ . '/../includes/header.php';
       </div>
     </div>
 
-    <div class="card investment-section investment-section-fixed">
+    <div class="card investment-section investment-section-fixed" id="fixed-list">
       <div class="investment-section-head">
         <div class="investment-section-icon">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
@@ -801,10 +811,11 @@ require __DIR__ . '/../includes/header.php';
           <div class="stat-value <?= ($fixedIn - $fixedOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($fixedIn - $fixedOut) ?></div>
         </div>
       </div>
-      <?php render_investment_companies($fixedCompanies, $attachmentsByTxn, 'fixed'); ?>
+      <?php render_investment_companies($fixedList['rows'], $attachmentsByTxn, 'fixed'); ?>
+      <?php render_pager('investments.php', $fixedList, 'fixed-list'); ?>
     </div>
 
-    <div class="card investment-section investment-section-regular">
+    <div class="card investment-section investment-section-regular" id="regular-list">
       <div class="investment-section-head">
         <div class="investment-section-icon">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
@@ -833,7 +844,8 @@ require __DIR__ . '/../includes/header.php';
           <div class="stat-value <?= ($regularIn - $regularOut) >= 0 ? 'text-success' : 'text-danger' ?>"><?= money($regularIn - $regularOut) ?></div>
         </div>
       </div>
-      <?php render_investment_companies($regularCompanies, $attachmentsByTxn, 'regular'); ?>
+      <?php render_investment_companies($regularList['rows'], $attachmentsByTxn, 'regular'); ?>
+      <?php render_pager('investments.php', $regularList, 'regular-list'); ?>
     </div>
   </form>
 <?php endif; ?>

@@ -848,6 +848,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/bookings.php');
 }
 
+$list = paginate_list($bookings);
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)">
@@ -869,6 +871,7 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </div>
 <form class="filters" method="get">
+  <?= list_limit_hidden() ?>
   <div class="field">
     <label>Search</label>
     <input type="search" name="q" value="<?= e($q) ?>" placeholder="Customer, phone, plot no…">
@@ -930,8 +933,12 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </form>
 <?php endif; ?>
-<div class="card">
-  <?php if (!$bookings): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Bookings</h2>
+    <?php render_limit_control('bookings.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No bookings yet</strong><p>Create a booking to start tracking a customer's plot, flat or row house sale.</p></div>
   <?php else: ?>
     <div class="table-wrap">
@@ -948,7 +955,7 @@ require __DIR__ . '/../includes/header.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($bookings as $b):
+          <?php foreach ($list['rows'] as $b):
             $received = (float) $b['received'];
             $returned = (float) $b['returned'];
             $total = (float) $b['total_amount'];
@@ -1117,6 +1124,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('bookings.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php if ($expandId): ?>

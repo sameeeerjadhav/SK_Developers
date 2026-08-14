@@ -122,14 +122,19 @@ $pageTitle = 'Users & roles';
 $pageSub = 'Manage admin and staff access.';
 $pageActions = '<a class="btn btn-primary" href="' . e(base_url('pages/users.php?action=add')) . '">+ Add user</a>';
 $users = $pdo->query('SELECT id, name, email, role, status, created_at FROM users ORDER BY role, name')->fetchAll();
+$list = paginate_list($users);
 require __DIR__ . '/../includes/header.php';
 ?>
-<div class="card">
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Users</h2>
+    <?php render_limit_control('users.php'); ?>
+  </div>
   <div class="table-wrap">
     <table class="data">
       <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th class="actions">Actions</th></tr></thead>
       <tbody>
-        <?php foreach ($users as $u): ?>
+        <?php foreach ($list['rows'] as $u): ?>
           <tr>
             <td><strong><?= e($u['name']) ?></strong></td>
             <td><?= e($u['email']) ?></td>
@@ -143,5 +148,6 @@ require __DIR__ . '/../includes/header.php';
       </tbody>
     </table>
   </div>
+  <?php render_pager('users.php', $list); ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

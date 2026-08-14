@@ -3,14 +3,13 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
-const TXN_PER_PAGE = 20;
-
 /**
  * Fetches one page of credit or debit transactions plus the grand total count/sum
  * across ALL matching rows (not just the current page) for that type.
  */
-function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectId, string $from, string $to, string $q, int $page): array
+function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectId, string $from, string $to, string $q, int $page, int $perPage): array
 {
+    $perPage = in_array($perPage, LIST_PAGE_LIMITS, true) ? $perPage : 25;
     $where = 'WHERE t.txn_type = ?';
     $params = [$txnType];
     if ($companyId) { $where .= ' AND t.company_id = ?'; $params[] = $companyId; }
@@ -34,10 +33,9 @@ function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectI
     $countStmt->execute($params);
     [$total, $sum] = $countStmt->fetch(PDO::FETCH_NUM);
     $total = (int) $total;
-
-    $totalPages = max(1, (int) ceil($total / TXN_PER_PAGE));
+    $totalPages = max(1, (int) ceil($total / max(1, $perPage)));
     $page = min(max(1, $page), $totalPages);
-    $offset = ($page - 1) * TXN_PER_PAGE;
+    $offset = ($page - 1) * $perPage;
 
     $rowStmt = $pdo->prepare(
         "SELECT t.*, c.name AS company_name, cat.name AS category_name, cat.section, cat.slug AS category_slug,
@@ -50,16 +48,20 @@ function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectI
          LEFT JOIN booking_payments bp ON bp.transaction_id = t.id
          $where
          ORDER BY t.txn_date DESC, t.id DESC
-         LIMIT " . TXN_PER_PAGE . " OFFSET $offset"
+         LIMIT " . $perPage . " OFFSET $offset"
     );
     $rowStmt->execute($params);
+    $rows = $rowStmt->fetchAll();
+    $count = count($rows);
 
     return [
-        'rows' => $rowStmt->fetchAll(),
+        'rows' => $rows,
         'total' => $total,
         'sum' => (float) $sum,
         'page' => $page,
         'totalPages' => $totalPages,
+        'from' => $count ? $offset + 1 : 0,
+        'to' => $offset + $count,
     ];
 }
 
@@ -103,11 +105,15 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
 {
     $isCredit = $type === 'credit';
     $rows = $data['rows'];
+    $anchor = $isCredit ? 'credit' : 'debit';
     ?>
-    <div class="card">
+    <div class="card" id="<?= $anchor ?>">
       <div class="card-head">
         <h2 class="card-title"><?= txn_type_chip($type) ?> <?= $isCredit ? 'Credit' : 'Debit' ?></h2>
-        <span class="muted" style="font-size:0.8rem"><?= $data['total'] ?> entries</span>
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+          <span class="muted" style="font-size:0.8rem"><?= $data['total'] ?> entries</span>
+          <?php render_limit_control('transactions.php', [], $anchor); ?>
+        </div>
       </div>
       <?php if (!$rows): ?>
         <div class="empty"><strong>No <?= $isCredit ? 'credit' : 'debit' ?> entries</strong><p>Nothing recorded for the current filters.</p></div>
@@ -173,29 +179,16 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
             </tfoot>
           </table>
         </div>
-        <?php if ($data['totalPages'] > 1):
-          $page = $data['page'];
-          $totalPages = $data['totalPages'];
-          $urlFor = function (int $p) use ($pageParam, $baseQueryParams) {
-              $params = $baseQueryParams;
-              $params[$pageParam] = $p;
-              return base_url('pages/transactions.php?' . http_build_query(array_filter($params, fn($v) => $v !== null && $v !== '')));
-          };
+        <?php
+          render_pager('transactions.php', [
+              'total' => $data['total'],
+              'page' => $data['page'],
+              'pages' => $data['totalPages'],
+              'from' => $data['from'] ?? 0,
+              'to' => $data['to'] ?? 0,
+              'page_param' => $pageParam,
+          ], $anchor);
         ?>
-          <div class="pager">
-            <?php if ($page > 1): ?>
-              <a class="btn btn-outline btn-sm" href="<?= e($urlFor($page - 1)) ?>">← Prev</a>
-            <?php else: ?>
-              <span class="btn btn-outline btn-sm" aria-disabled="true">← Prev</span>
-            <?php endif; ?>
-            <span class="pager-info">Page <?= $page ?> of <?= $totalPages ?></span>
-            <?php if ($page < $totalPages): ?>
-              <a class="btn btn-outline btn-sm" href="<?= e($urlFor($page + 1)) ?>">Next →</a>
-            <?php else: ?>
-              <span class="btn btn-outline btn-sm" aria-disabled="true">Next →</span>
-            <?php endif; ?>
-          </div>
-        <?php endif; ?>
       <?php endif; ?>
     </div>
     <?php
@@ -549,15 +542,16 @@ $pageSub = 'Full ledger across companies and projects.';
 $pageActions = report_export_buttons()
     . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add')) . '">+ Add transaction</a>';
 
-$emptyPage = ['rows' => [], 'total' => 0, 'sum' => 0.0, 'page' => 1, 'totalPages' => 1];
+$emptyPage = ['rows' => [], 'total' => 0, 'sum' => 0.0, 'page' => 1, 'totalPages' => 1, 'from' => 0, 'to' => 0];
 $creditPage = max(1, (int) get('credit_page', 1));
 $debitPage = max(1, (int) get('debit_page', 1));
+$perPage = list_page_limit();
 
 $creditData = ($filterType === '' || $filterType === 'credit')
-    ? fetch_txn_page($pdo, 'credit', $filterCompany, $filterProject, $filterFrom, $filterTo, $q, $creditPage)
+    ? fetch_txn_page($pdo, 'credit', $filterCompany, $filterProject, $filterFrom, $filterTo, $q, $creditPage, $perPage)
     : $emptyPage;
 $debitData = ($filterType === '' || $filterType === 'debit')
-    ? fetch_txn_page($pdo, 'debit', $filterCompany, $filterProject, $filterFrom, $filterTo, $q, $debitPage)
+    ? fetch_txn_page($pdo, 'debit', $filterCompany, $filterProject, $filterFrom, $filterTo, $q, $debitPage, $perPage)
     : $emptyPage;
 
 $baseQueryParams = [
@@ -693,6 +687,7 @@ require __DIR__ . '/../includes/header.php';
 ?>
 
 <form class="filters" method="get">
+  <?= list_limit_hidden() ?>
   <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Search</label>

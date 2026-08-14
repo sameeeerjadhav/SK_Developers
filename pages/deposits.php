@@ -224,21 +224,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/deposits.php');
 }
 
+$list = paginate_list($deposits);
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
   <div class="stat-card"><div class="stat-label">Active deposits</div><div class="stat-value"><?= money($activeTotal) ?></div></div>
   <div class="stat-card"><div class="stat-label">Records</div><div class="stat-value"><?= count($deposits) ?></div></div>
 </div>
-<div class="card">
-  <?php if (!$deposits): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Deposits</h2>
+    <?php render_limit_control('deposits.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No deposits</strong><p>Track FDs and other deposits by company.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Title</th><th>Company</th><th>Account</th><th class="num">Amount</th><th>Maturity</th><th>Status</th><th class="actions">Actions</th></tr></thead>
         <tbody>
-          <?php foreach ($deposits as $d): ?>
+          <?php foreach ($list['rows'] as $d): ?>
             <tr>
               <td><strong><?= e($d['title']) ?></strong></td>
               <td><?= e($d['company_name']) ?></td>
@@ -260,6 +266,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('deposits.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

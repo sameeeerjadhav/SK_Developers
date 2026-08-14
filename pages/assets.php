@@ -203,21 +203,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/assets.php');
 }
 
+$list = paginate_list($assets);
+
 require __DIR__ . '/../includes/header.php';
 ?>
 <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
   <div class="stat-card"><div class="stat-label">Total asset value</div><div class="stat-value"><?= money($totalValue) ?></div></div>
   <div class="stat-card"><div class="stat-label">Assets</div><div class="stat-value"><?= count($assets) ?></div></div>
 </div>
-<div class="card">
-  <?php if (!$assets): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Assets</h2>
+    <?php render_limit_control('assets.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No assets</strong><p>Register vehicles, equipment and other company assets.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Name</th><th>Company</th><th>Type</th><th>Purchase date</th><th class="num">Purchase</th><th class="num">Current</th><th class="actions">Actions</th></tr></thead>
         <tbody>
-          <?php foreach ($assets as $a): ?>
+          <?php foreach ($list['rows'] as $a): ?>
             <tr>
               <td><strong><?= e($a['name']) ?></strong></td>
               <td><?= e($a['company_name']) ?></td>
@@ -239,6 +245,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('assets.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

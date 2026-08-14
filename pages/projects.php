@@ -188,11 +188,13 @@ $sql .= ' ORDER BY p.created_at DESC';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $projects = $stmt->fetchAll();
+$list = paginate_list($projects);
 
 require __DIR__ . '/../includes/header.php';
 ?>
 
 <form class="filters" method="get">
+  <?= list_limit_hidden() ?>
   <div class="field">
     <label>Search</label>
     <input type="search" name="q" value="<?= e($q) ?>" placeholder="Project, location, company…">
@@ -238,8 +240,12 @@ require __DIR__ . '/../includes/header.php';
 </form>
 <p class="muted" style="font-size:0.78rem;margin:-0.5rem 0 1rem">Date filters apply to credits, debits and profit in the table. Search, company, project and status filter which projects are listed.</p>
 
-<div class="card">
-  <?php if (!$projects): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Projects</h2>
+    <?php render_limit_control('projects.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No projects found</strong><p>Create a project to start tracking credit and expenses.</p></div>
   <?php else: ?>
     <div class="table-wrap">
@@ -256,7 +262,7 @@ require __DIR__ . '/../includes/header.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($projects as $p):
+          <?php foreach ($list['rows'] as $p):
             $credits = sum_transactions($pdo, 'credit', null, (int) $p['id'], null, $txnFrom, $txnTo);
             $debits = sum_transactions($pdo, 'debit', null, (int) $p['id'], null, $txnFrom, $txnTo);
             $profit = $credits - $debits;
@@ -286,6 +292,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('projects.php', $list); ?>
   <?php endif; ?>
 </div>
 

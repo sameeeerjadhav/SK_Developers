@@ -30,6 +30,7 @@ if (!is_file($dbFile)) {
     }
     $pdo = null;
     require_once __DIR__ . '/functions.php';
+    require_once __DIR__ . '/paginate.php';
     require_once __DIR__ . '/auth.php';
     return;
 }
@@ -65,6 +66,7 @@ try {
 }
 
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/paginate.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/migrate.php';
 require_once __DIR__ . '/pdf.php';

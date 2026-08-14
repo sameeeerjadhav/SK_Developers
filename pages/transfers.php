@@ -376,7 +376,7 @@ $transferSql = 'SELECT tr.*, c.name AS company_name, fa.account_name AS from_nam
      LEFT JOIN bank_accounts fa ON fa.id = tr.from_account_id
      LEFT JOIN bank_accounts ta ON ta.id = tr.to_account_id
      ORDER BY tr.transfer_date DESC, tr.id DESC';
-$rows = $pdo->query($transferSql . ' LIMIT 100')->fetchAll();
+$rows = $pdo->query($transferSql)->fetchAll();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
     verify_csrf();
@@ -497,17 +497,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/transfers.php');
 }
 
+$list = paginate_list($rows);
+
 require __DIR__ . '/../includes/header.php';
 ?>
-<div class="card">
-  <?php if (!$rows): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Transfers</h2>
+    <?php render_limit_control('transfers.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No transfers yet</strong><p>Move funds between accounts, or record money from / to an external party.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Date</th><th>Company</th><th>From</th><th>To</th><th class="num">Amount</th><th>Ref</th></tr></thead>
         <tbody>
-          <?php foreach ($rows as $r):
+          <?php foreach ($list['rows'] as $r):
             $type = $r['transfer_type'] ?? 'internal';
             $isExternal = $type === 'external';
             $isInbound = $type === 'inbound';
@@ -571,6 +577,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('transfers.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

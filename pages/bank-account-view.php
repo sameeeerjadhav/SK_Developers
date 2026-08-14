@@ -130,6 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/bank-account-view.php?id=' . $id);
 }
 
+$list = paginate_list($rows);
+
 require __DIR__ . '/../includes/header.php';
 ?>
 
@@ -149,9 +151,12 @@ require __DIR__ . '/../includes/header.php';
   </div>
 </div>
 
-<div class="card">
-  <h2 class="card-title">Account statement</h2>
-  <?php if (!$rows): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Account statement</h2>
+    <?php render_limit_control('bank-account-view.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No linked transactions</strong><p>When adding transactions, select this bank account to affect the live balance.</p></div>
   <?php else: ?>
     <div class="table-wrap">
@@ -167,7 +172,7 @@ require __DIR__ . '/../includes/header.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($rows as $row): ?>
+          <?php foreach ($list['rows'] as $row): ?>
             <tr>
               <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e($row['category_name']) ?></td>
@@ -182,6 +187,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('bank-account-view.php', $list); ?>
   <?php endif; ?>
 </div>
 

@@ -118,6 +118,7 @@ foreach ($accounts as &$acc) {
     }
 }
 unset($acc);
+$list = paginate_list($accounts);
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -125,15 +126,19 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Combined balance</div><div class="stat-value"><?= money($totalBalance) ?></div></div>
   <div class="stat-card"><div class="stat-label">Active accounts</div><div class="stat-value"><?= count(array_filter($accounts, fn($a) => $a['status'] === 'active')) ?></div></div>
 </div>
-<div class="card">
-  <?php if (!$accounts): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Accounts</h2>
+    <?php render_limit_control('bank-accounts.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No bank accounts</strong><p>Add accounts for main and sub companies to track spent vs balance.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Account</th><th>Company</th><th>Bank</th><th class="num">Opening</th><th class="num">Live balance</th><th>Status</th><th class="actions">Actions</th></tr></thead>
         <tbody>
-          <?php foreach ($accounts as $a): ?>
+          <?php foreach ($list['rows'] as $a): ?>
             <tr>
               <td>
                 <strong><?= e($a['account_name']) ?></strong>
@@ -159,6 +164,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('bank-accounts.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

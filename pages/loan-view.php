@@ -1078,12 +1078,16 @@ require __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
-<div class="card">
+<?php $repayList = paginate_list($repayments); ?>
+<div class="card" id="list">
   <div class="card-head">
     <h2 class="card-title">Repayment history</h2>
-    <span class="muted" style="font-size:0.8rem"><?= count($repayments) ?> entries</span>
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+      <span class="muted" style="font-size:0.8rem"><?= count($repayments) ?> entries</span>
+      <?php if ($repayList['total']): render_limit_control('loan-view.php'); endif; ?>
+    </div>
   </div>
-  <?php if (!$repayments): ?>
+  <?php if (!$repayList['total']): ?>
     <div class="empty"><strong>No repayments recorded yet</strong><p><?= $viewOnly ? 'Open Repayments to record a payment.' : 'Use the form above whenever a repayment is made — amounts don\'t need to be fixed or scheduled.' ?></p></div>
   <?php else: ?>
     <div class="table-wrap">
@@ -1101,7 +1105,7 @@ require __DIR__ . '/../includes/header.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($repayments as $r):
+          <?php foreach ($repayList['rows'] as $r):
             $repayEditId = 'repay-edit-' . $r['id'];
             $repaySearch = mb_strtolower(trim(($r['borrower_name'] ?? '') . ' ' . ($r['notes'] ?? '') . ' ' . ($r['account_name'] ?? '')));
           ?>
@@ -1184,6 +1188,7 @@ require __DIR__ . '/../includes/header.php';
         </tfoot>
       </table>
     </div>
+    <?php render_pager('loan-view.php', $repayList); ?>
   <?php endif; ?>
 </div>
 

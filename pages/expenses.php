@@ -130,6 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/expenses.php');
 }
 
+$list = paginate_list($rows);
+
 $pageTitle = 'Expenses';
 $pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
 $pageActions = report_export_buttons()
@@ -142,6 +144,7 @@ require __DIR__ . '/../includes/header.php';
   <div class="stat-card"><div class="stat-label">Entries</div><div class="stat-value"><?= count($rows) ?></div></div>
 </div>
 <form class="filters" method="get">
+  <?= list_limit_hidden() ?>
   <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Company</label>
@@ -172,15 +175,19 @@ require __DIR__ . '/../includes/header.php';
     <button class="btn btn-outline" type="submit">Filter</button>
   </div>
 </form>
-<div class="card">
-  <?php if (!$rows): ?>
+<div class="card" id="list">
+  <div class="card-head">
+    <h2 class="card-title">Expense entries</h2>
+    <?php render_limit_control('expenses.php'); ?>
+  </div>
+  <?php if (!$list['total']): ?>
     <div class="empty"><strong>No expenses recorded</strong><p>Add debit transactions under Land Purchase or Expenses categories.</p></div>
   <?php else: ?>
     <div class="table-wrap">
       <table class="data">
         <thead><tr><th>Date</th><th>Company</th><th>Project</th><th>Category</th><th class="num">Amount</th></tr></thead>
         <tbody>
-          <?php foreach ($rows as $row): ?>
+          <?php foreach ($list['rows'] as $row): ?>
             <tr>
               <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e($row['company_name']) ?></td>
@@ -192,6 +199,7 @@ require __DIR__ . '/../includes/header.php';
         </tbody>
       </table>
     </div>
+    <?php render_pager('expenses.php', $list); ?>
   <?php endif; ?>
 </div>
 <?php require __DIR__ . '/../includes/footer.php'; ?>
