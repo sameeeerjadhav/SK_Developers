@@ -520,6 +520,7 @@ if ($action === 'add' || $action === 'edit') {
 }
 
 $filterCompany = (int) get('company_id', 0);
+$filterProject = (int) get('project_id', 0);
 $filterStatus = get('status', '');
 $q = get('q', '');
 $expandId = (int) get('expand', 0);
@@ -530,6 +531,14 @@ if ($month !== '' || $year !== '') {
     if ($filterFrom === '' && $filterTo === '') {
         $filterFrom = $fromMonth ?: '';
         $filterTo = $toMonth ?: '';
+    }
+}
+
+if ($filterCompany && $filterProject) {
+    $pjOk = $pdo->prepare('SELECT id FROM projects WHERE id = ? AND company_id = ?');
+    $pjOk->execute([$filterProject, $filterCompany]);
+    if (!$pjOk->fetchColumn()) {
+        $filterProject = 0;
     }
 }
 
@@ -550,6 +559,7 @@ $sql = "SELECT b.*, cu.name AS customer_name, cu.phone AS customer_phone, cu.ema
         WHERE 1=1";
 $params = [];
 if ($filterCompany) { $sql .= ' AND b.company_id = ?'; $params[] = $filterCompany; }
+if ($filterProject) { $sql .= ' AND b.project_id = ?'; $params[] = $filterProject; }
 if ($filterStatus !== '') { $sql .= ' AND b.status = ?'; $params[] = $filterStatus; }
 if ($q !== '') {
     $sql .= ' AND (cu.name LIKE ? OR cu.phone LIKE ? OR b.plot_no LIKE ?)';
@@ -595,6 +605,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         $cn = $pdo->prepare('SELECT name FROM companies WHERE id = ?');
         $cn->execute([$filterCompany]);
         $companyName = (string) ($cn->fetchColumn() ?: 'Company #' . $filterCompany);
+    }
+    $projectName = 'All projects';
+    if ($filterProject) {
+        $pn = $pdo->prepare('SELECT name FROM projects WHERE id = ?');
+        $pn->execute([$filterProject]);
+        $projectName = (string) ($pn->fetchColumn() ?: 'Project #' . $filterProject);
     }
 
     if ($selectedIds) {
@@ -728,6 +744,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         'orientation' => 'landscape',
         'meta' => [
             ['Company', $companyName],
+            ['Project', $projectName],
             ['Status', $filterStatus !== '' ? ucfirst($filterStatus) : 'All'],
             ['Search', $q !== '' ? $q : '—'],
             ['Payment period', report_display_period($filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, $month, $year)],
@@ -811,11 +828,17 @@ require __DIR__ . '/../includes/header.php';
   </div>
   <div class="field">
     <label>Company</label>
-    <select name="company_id">
+    <select name="company_id" onchange="this.form.project_id.value=''; this.form.submit()">
       <option value="">All</option>
       <?php foreach ($pdo->query('SELECT id, name FROM companies ORDER BY type, name') as $co): ?>
         <option value="<?= (int) $co['id'] ?>" <?= $filterCompany === (int) $co['id'] ? 'selected' : '' ?>><?= e($co['name']) ?></option>
       <?php endforeach; ?>
+    </select>
+  </div>
+  <div class="field">
+    <label>Project</label>
+    <select name="project_id" onchange="this.form.submit()">
+      <?= project_options($pdo, $filterCompany ?: null, $filterProject ?: null) ?>
     </select>
   </div>
   <div class="field">
