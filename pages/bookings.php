@@ -848,6 +848,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     redirect('pages/bookings.php');
 }
 
+if ($expandId && (!isset($_GET['page']) || $_GET['page'] === '')) {
+    foreach ($bookings as $i => $b) {
+        if ((int) $b['id'] === $expandId) {
+            $_GET['page'] = (string) (intdiv((int) $i, list_page_limit()) + 1);
+            break;
+        }
+    }
+}
 $list = paginate_list($bookings);
 
 require __DIR__ . '/../includes/header.php';

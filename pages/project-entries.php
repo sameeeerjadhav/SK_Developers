@@ -17,10 +17,16 @@ if (!$project) {
 
 $allTxnStmt = $pdo->prepare(
     'SELECT t.*, cat.name AS category_name, cat.slug AS category_slug, cat.section,
-            ba.account_name, ba.bank_name
+            ba.account_name, ba.bank_name, bp.booking_id
      FROM transactions t
      JOIN categories cat ON cat.id = t.category_id
      LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+     LEFT JOIN (
+        SELECT transaction_id, MIN(booking_id) AS booking_id
+        FROM booking_payments
+        WHERE transaction_id IS NOT NULL
+        GROUP BY transaction_id
+     ) bp ON bp.transaction_id = t.id
      WHERE t.project_id = ?
      ORDER BY t.txn_date DESC, t.id DESC'
 );
@@ -61,7 +67,8 @@ require __DIR__ . '/../includes/header.php';
           <?php foreach ($list['rows'] as $row):
             $mgmtPage = null;
             if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
-                $mgmtPage = ['bookings.php', 'Bookings'];
+                $bookingId = (int) ($row['booking_id'] ?? 0);
+                $mgmtPage = ['bookings.php' . ($bookingId ? ('?expand=' . $bookingId) : ''), 'Bookings'];
             } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
                 $mgmtPage = ['investments.php', 'Investments'];
             }

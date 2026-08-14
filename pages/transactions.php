@@ -45,7 +45,12 @@ function fetch_txn_page(PDO $pdo, string $txnType, int $companyId, int $projectI
          JOIN categories cat ON cat.id = t.category_id
          LEFT JOIN projects p ON p.id = t.project_id
          LEFT JOIN partners pr ON pr.id = t.partner_id
-         LEFT JOIN booking_payments bp ON bp.transaction_id = t.id
+         LEFT JOIN (
+            SELECT transaction_id, MIN(booking_id) AS booking_id
+            FROM booking_payments
+            WHERE transaction_id IS NOT NULL
+            GROUP BY transaction_id
+         ) bp ON bp.transaction_id = t.id
          $where
          ORDER BY t.txn_date DESC, t.id DESC
          LIMIT " . $perPage . " OFFSET $offset"
@@ -148,7 +153,8 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
                     <?php
                     $mgmtPage = null;
                     if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
-                        $mgmtPage = ['bookings.php', 'Bookings'];
+                        $bookingId = (int) ($row['booking_id'] ?? 0);
+                        $mgmtPage = ['bookings.php' . ($bookingId ? ('?expand=' . $bookingId) : ''), 'Bookings'];
                     } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
                         $mgmtPage = ['investments.php', 'Investments'];
                     }
