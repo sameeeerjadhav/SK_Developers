@@ -201,6 +201,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pages/bookings.php?expand=' . (int) $payment['booking_id']);
     }
 
+    if ($postAction === 'delete_payment') {
+        if (!can_delete()) {
+            flash('error', 'Only admins can delete payment entries.');
+            redirect('pages/bookings.php');
+        }
+        $paymentId = (int) post('payment_id', 0);
+        $pStmt = $pdo->prepare(
+            'SELECT id, booking_id, transaction_id, amount, payment_type
+             FROM booking_payments WHERE id = ?'
+        );
+        $pStmt->execute([$paymentId]);
+        $payment = $pStmt->fetch();
+        if (!$payment) {
+            flash('error', 'Payment entry not found.');
+            redirect('pages/bookings.php');
+        }
+        $bookingId = (int) $payment['booking_id'];
+        $txnId = $payment['transaction_id'] ? (int) $payment['transaction_id'] : 0;
+        $pdo->prepare('DELETE FROM booking_payments WHERE id = ?')->execute([$paymentId]);
+        if ($txnId) {
+            delete_transactions_by_ids($pdo, [$txnId]);
+        }
+        audit_log(
+            $pdo,
+            'delete',
+            'booking_payment',
+            $bookingId,
+            'Deleted payment #' . $paymentId . ' (' . ($payment['payment_type'] ?? '') . ' ' . money($payment['amount']) . ')'
+        );
+        flash('success', 'Payment entry deleted. Remaining amount has been updated.');
+        redirect('pages/bookings.php?expand=' . $bookingId);
+    }
+
     if ($postAction === 'delete') {
         if (!can_delete()) {
             flash('error', 'Only admins can delete bookings.');
@@ -941,7 +974,7 @@ require __DIR__ . '/../includes/header.php';
                 <?php if ($payments): ?>
                   <div class="table-wrap" style="margin-bottom:1rem">
                     <table class="data">
-                      <thead><tr><th class="select-col"></th><th>Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th></tr></thead>
+                      <thead><tr><th class="select-col"></th><th>Date</th><th>Type</th><th class="num">Amount</th><th>Notes</th><th class="actions">Actions</th></tr></thead>
                       <tbody>
                         <?php foreach ($payments as $pay):
                           $payEditId = 'pay-edit-' . $pay['id'];
@@ -954,9 +987,19 @@ require __DIR__ . '/../includes/header.php';
                               <?= $pay['payment_type'] === 'received' ? '+' : '−' ?><?= money($pay['amount']) ?>
                             </td>
                             <td><?= e($pay['notes'] ?: '') ?></td>
+                            <td class="actions">
+                              <?php if (can_delete()): ?>
+                              <form method="post" style="display:inline">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="delete_payment">
+                                <input type="hidden" name="payment_id" value="<?= (int) $pay['id'] ?>">
+                                <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this payment entry? It will be removed from the booking and the ledger.">Delete</button>
+                              </form>
+                              <?php endif; ?>
+                            </td>
                           </tr>
                           <tr class="row-detail" id="<?= e($payEditId) ?>" hidden>
-                            <td colspan="5">
+                            <td colspan="6">
                               <form method="post" class="form-grid" style="padding:0">
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="edit_payment">
@@ -982,6 +1025,9 @@ require __DIR__ . '/../includes/header.php';
                                 </div>
                                 <div class="full form-actions" style="justify-content:flex-start">
                                   <button class="btn btn-primary btn-sm" type="submit">Save changes</button>
+                                  <?php if (can_delete()): ?>
+                                  <button class="btn btn-danger btn-sm" type="submit" name="action" value="delete_payment" formnovalidate data-confirm="Delete this payment entry? It will be removed from the booking and the ledger.">Delete entry</button>
+                                  <?php endif; ?>
                                 </div>
                               </form>
                             </td>
@@ -1046,7 +1092,7 @@ require __DIR__ . '/../includes/header.php';
                       <?= csrf_field() ?>
                       <input type="hidden" name="action" value="delete">
                       <input type="hidden" name="id" value="<?= (int) $b['id'] ?>">
-                      <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this booking and all its payment history? This also removes the linked ledger transactions.">Delete booking</button>
+                      <button class="btn btn-danger btn-sm" type="submit" data-confirm="Delete this entire booking and all of its payment history? Linked ledger transactions will also be removed. This cannot be undone.">Delete entire booking</button>
                     </form>
                   <?php endif; ?>
                 </div>
