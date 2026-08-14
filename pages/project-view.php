@@ -3,6 +3,8 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
+const PROJECT_TXN_PER_PAGE = 20;
+
 $id = (int) get('id', 0);
 $stmt = $pdo->prepare(
     'SELECT p.*, c.name AS company_name, c.type AS company_type
@@ -28,13 +30,28 @@ $debitTotal = $landTotal + $partnerDebitTotal;
 $expenseTotal = array_sum(array_map(fn($r) => (float)$r['total'], $expenses));
 $profit = $creditTotal - $debitTotal - $expenseTotal;
 
-$txns = $pdo->prepare(
-    'SELECT t.*, cat.name AS category_name, cat.slug AS category_slug, cat.section
-     FROM transactions t JOIN categories cat ON cat.id = t.category_id
-     WHERE t.project_id = ? ORDER BY t.txn_date DESC, t.id DESC LIMIT 20'
+$allTxnStmt = $pdo->prepare(
+    'SELECT t.*, cat.name AS category_name, cat.slug AS category_slug, cat.section,
+            ba.account_name, ba.bank_name
+     FROM transactions t
+     JOIN categories cat ON cat.id = t.category_id
+     LEFT JOIN bank_accounts ba ON ba.id = t.bank_account_id
+     WHERE t.project_id = ?
+     ORDER BY t.txn_date DESC, t.id DESC'
 );
-$txns->execute([$id]);
-$recent = $txns->fetchAll();
+$allTxnStmt->execute([$id]);
+$allTxns = $allTxnStmt->fetchAll();
+
+$txnsByCat = [];
+foreach ($allTxns as $t) {
+    $txnsByCat[(int) $t['category_id']][] = $t;
+}
+
+$txnCount = count($allTxns);
+$txnPages = max(1, (int) ceil($txnCount / PROJECT_TXN_PER_PAGE));
+$txnPage = min(max(1, (int) get('page', 1)), $txnPages);
+$txnOffset = ($txnPage - 1) * PROJECT_TXN_PER_PAGE;
+$ledgerPage = array_slice($allTxns, $txnOffset, PROJECT_TXN_PER_PAGE);
 
 $pageTitle = $project['name'];
 $pageSub = ($project['company_type'] === 'main' ? 'Main company' : 'Sub company') . ' · ' . $project['company_name'];
@@ -178,23 +195,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
 
 require __DIR__ . '/../includes/header.php';
 
-/** Renders category rows; rows with a non-zero total expand to show the Cash vs Bank account split. */
-function render_ledger_rows(array $rows, string $idPrefix): void
+/** Renders category totals; non-zero rows expand to Cash/Bank split plus every matching entry. */
+function render_ledger_rows(array $rows, string $idPrefix, array $txnsByCat): void
 {
     echo '<div class="table-wrap"><table class="data"><thead><tr><th>Particulars</th><th class="num">Amount</th></tr></thead><tbody>';
     foreach ($rows as $row) {
         $total = (float) $row['total'];
-        if ($total == 0.0) {
+        $entries = $txnsByCat[(int) $row['id']] ?? [];
+        $entryCount = count($entries);
+        if ($total == 0.0 && $entryCount === 0) {
             echo '<tr><td>' . e($row['name']) . '</td><td class="num">' . money($total) . '</td></tr>';
             continue;
         }
         $detailId = $idPrefix . '-cat-' . $row['id'];
-        echo '<tr class="row-clickable" data-row-toggle="' . e($detailId) . '"><td><span class="row-caret">▸</span>' . e($row['name']) . '</td><td class="num">' . money($total) . '</td></tr>';
+        echo '<tr class="row-clickable" data-row-toggle="' . e($detailId) . '"><td><span class="row-caret">▸</span>' . e($row['name']);
+        if ($entryCount > 0) {
+            echo ' <span class="muted" style="font-weight:600;font-size:0.72rem">(' . $entryCount . ($entryCount === 1 ? ' entry' : ' entries') . ')</span>';
+        }
+        echo '</td><td class="num">' . money($total) . '</td></tr>';
         echo '<tr class="row-detail" id="' . e($detailId) . '" hidden><td colspan="2">';
         echo '<table class="detail-table"><tbody>';
         echo '<tr><td>Cash</td><td>' . money($row['cash_total']) . '</td></tr>';
         echo '<tr><td>Bank account</td><td>' . money($row['bank_total']) . '</td></tr>';
         echo '</tbody></table>';
+        if ($entries) {
+            echo '<div class="table-wrap" style="max-height:22rem;overflow:auto;margin-top:0.6rem">';
+            echo '<table class="detail-table"><thead><tr><th>Date</th><th>Account</th><th>Particulars</th><th class="num">Amount</th></tr></thead><tbody>';
+            foreach ($entries as $t) {
+                $account = $t['account_name']
+                    ? trim($t['account_name'] . ($t['bank_name'] ? ' — ' . $t['bank_name'] : ''))
+                    : 'Cash';
+                $note = trim((string) ($t['description'] ?? ''));
+                echo '<tr>';
+                echo '<td>' . e(format_date($t['txn_date'])) . '</td>';
+                echo '<td>' . e($account) . '</td>';
+                echo '<td>' . e($note !== '' ? $note : ($t['category_name'] ?? '')) . '</td>';
+                echo '<td class="num ' . (($t['txn_type'] ?? '') === 'credit' ? 'text-success' : 'text-danger') . '">' . money($t['amount']) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        }
         echo '</td></tr>';
     }
     echo '</tbody></table></div>';
@@ -237,17 +277,18 @@ function render_ledger_rows(array $rows, string $idPrefix): void
 <div class="grid-3">
   <div class="card ledger-block credit">
     <h3>Credit</h3>
-    <?php render_ledger_rows($credits, 'credit'); ?>
+    <p class="muted" style="font-size:0.75rem;margin:-0.2rem 0 0.6rem">Click a line with ▸ to see every entry in that particular.</p>
+    <?php render_ledger_rows($credits, 'credit', $txnsByCat); ?>
     <div class="ledger-total"><span>Total credit</span><span class="text-success"><?= money($creditTotal) ?></span></div>
   </div>
   <div class="card ledger-block debit">
     <h3>Debit</h3>
-    <?php render_ledger_rows($debits, 'debit'); ?>
+    <?php render_ledger_rows($debits, 'debit', $txnsByCat); ?>
     <div class="ledger-total"><span>Total debit</span><span class="text-danger"><?= money($debitTotal) ?></span></div>
   </div>
   <div class="card ledger-block expense">
     <h3>Expenses</h3>
-    <?php render_ledger_rows($expenses, 'expense'); ?>
+    <?php render_ledger_rows($expenses, 'expense', $txnsByCat); ?>
     <div class="ledger-total"><span>Total expenses</span><span class="text-danger"><?= money($expenseTotal) ?></span></div>
     <div class="profit-row">
       <span>Profit</span>
@@ -256,12 +297,12 @@ function render_ledger_rows(array $rows, string $idPrefix): void
   </div>
 </div>
 
-<div class="card" style="margin-top:1rem">
+<div class="card" id="entries" style="margin-top:1rem">
   <div class="card-head">
-    <h2 class="card-title">Recent project entries</h2>
-    <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?project_id=' . $id)) ?>">All transactions</a>
+    <h2 class="card-title">Project entries</h2>
+    <span class="muted" style="font-size:0.8rem"><?= (int) $txnCount ?> <?= $txnCount === 1 ? 'entry' : 'entries' ?></span>
   </div>
-  <?php if (!$recent): ?>
+  <?php if (!$ledgerPage): ?>
     <div class="empty"><strong>No entries yet</strong><p>Add credits (investment, partner, booking…) or expenses for this project.</p></div>
   <?php else: ?>
     <div class="table-wrap">
@@ -271,24 +312,31 @@ function render_ledger_rows(array $rows, string $idPrefix): void
             <th>Date</th>
             <th>Section</th>
             <th>Category</th>
+            <th>Account</th>
+            <th>Particulars</th>
             <th>Type</th>
             <th class="num">Amount</th>
             <th class="actions">Actions</th>
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($recent as $row):
+          <?php foreach ($ledgerPage as $row):
             $mgmtPage = null;
             if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
                 $mgmtPage = ['bookings.php', 'Bookings'];
             } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
                 $mgmtPage = ['investments.php', 'Investments'];
             }
+            $account = $row['account_name']
+                ? trim($row['account_name'] . ($row['bank_name'] ? ' — ' . $row['bank_name'] : ''))
+                : 'Cash';
           ?>
             <tr>
               <td><?= e(format_date($row['txn_date'])) ?></td>
               <td><?= e(ucwords(str_replace('_', ' ', $row['section']))) ?></td>
               <td><?= e($row['category_name']) ?></td>
+              <td><?= e($account) ?></td>
+              <td><?= e($row['description'] ?? '') ?></td>
               <td><?= txn_type_chip($row['txn_type']) ?></td>
               <td class="num <?= $row['txn_type'] === 'credit' ? 'text-success' : 'text-danger' ?>"><?= money($row['amount']) ?></td>
               <td class="actions">
@@ -303,6 +351,27 @@ function render_ledger_rows(array $rows, string $idPrefix): void
         </tbody>
       </table>
     </div>
+    <?php if ($txnPages > 1):
+        $urlFor = static function (int $p) use ($id): string {
+            return base_url('pages/project-view.php?' . http_build_query(['id' => $id, 'page' => $p]) . '#entries');
+        };
+        $shownFrom = $txnOffset + 1;
+        $shownTo = $txnOffset + count($ledgerPage);
+    ?>
+      <div class="pager">
+        <?php if ($txnPage > 1): ?>
+          <a class="btn btn-outline btn-sm" href="<?= e($urlFor($txnPage - 1)) ?>">← Prev</a>
+        <?php else: ?>
+          <span class="btn btn-outline btn-sm" aria-disabled="true">← Prev</span>
+        <?php endif; ?>
+        <span class="pager-info">Showing <?= $shownFrom ?>–<?= $shownTo ?> of <?= $txnCount ?> · Page <?= $txnPage ?> of <?= $txnPages ?></span>
+        <?php if ($txnPage < $txnPages): ?>
+          <a class="btn btn-outline btn-sm" href="<?= e($urlFor($txnPage + 1)) ?>">Next →</a>
+        <?php else: ?>
+          <span class="btn btn-outline btn-sm" aria-disabled="true">Next →</span>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
   <?php endif; ?>
 </div>
 
