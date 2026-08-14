@@ -67,7 +67,8 @@ require __DIR__ . '/../includes/header.php';
           <?php foreach ($list['rows'] as $row):
             $mgmtPage = null;
             if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
-                $bookingId = (int) ($row['booking_id'] ?? 0);
+                $bookingMatch = booking_match_for_transaction($pdo, $row);
+                $bookingId = (int) $bookingMatch['booking_id'];
                 $mgmtPage = ['bookings.php' . ($bookingId ? ('?expand=' . $bookingId) : ''), 'Bookings'];
             } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
                 $mgmtPage = ['investments.php', 'Investments'];

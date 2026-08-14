@@ -106,7 +106,7 @@ function fetch_txn_export(PDO $pdo, string $txnType, int $companyId, int $projec
 }
 
 /** Renders one Credit/Debit column: table of rows, a totals row, and pagination. */
-function render_txn_column(array $data, string $type, string $pageParam, array $baseQueryParams): void
+function render_txn_column(PDO $pdo, array $data, string $type, string $pageParam, array $baseQueryParams): void
 {
     $isCredit = $type === 'credit';
     $rows = $data['rows'];
@@ -152,8 +152,10 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
                   <td class="actions">
                     <?php
                     $mgmtPage = null;
+                    $bookingMatch = null;
                     if (in_array($row['category_slug'], ['booking', 'booking_refund'], true)) {
-                        $bookingId = (int) ($row['booking_id'] ?? 0);
+                        $bookingMatch = booking_match_for_transaction($pdo, $row);
+                        $bookingId = (int) $bookingMatch['booking_id'];
                         $mgmtPage = ['bookings.php' . ($bookingId ? ('?expand=' . $bookingId) : ''), 'Bookings'];
                     } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
                         $mgmtPage = ['investments.php', 'Investments'];
@@ -161,6 +163,14 @@ function render_txn_column(array $data, string $type, string $pageParam, array $
                     ?>
                     <?php if ($mgmtPage): ?>
                       <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/' . $mgmtPage[0])) ?>">Manage in <?= e($mgmtPage[1]) ?></a>
+                      <?php if ($bookingMatch && empty($bookingMatch['linked']) && can_delete()): ?>
+                      <form method="post" style="display:inline">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="id" value="<?= (int) $row['id'] ?>">
+                        <button class="btn btn-danger btn-sm" type="submit" data-confirm="This booking credit is not attached to a booking payment. Delete this extra ledger row?">Delete</button>
+                      </form>
+                      <?php endif; ?>
                     <?php else: ?>
                       <a class="btn btn-outline btn-sm" href="<?= e(base_url('pages/transactions.php?action=edit&id=' . $row['id'])) ?>">Edit</a>
                       <?php if (can_delete()): ?>
@@ -301,6 +311,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/transactions.php');
         }
         $delId = (int) post('id', 0);
+        $linkedBooking = $pdo->prepare('SELECT id FROM booking_payments WHERE transaction_id = ? LIMIT 1');
+        $linkedBooking->execute([$delId]);
+        if ($linkedBooking->fetchColumn()) {
+            flash('error', 'This entry belongs to a booking. Delete it from Bookings.');
+            redirect('pages/transactions.php');
+        }
         $stmt = $pdo->prepare('SELECT partner_id FROM transactions WHERE id = ?');
         $stmt->execute([$delId]);
         $partnerId = $stmt->fetchColumn();
@@ -735,8 +751,8 @@ require __DIR__ . '/../includes/header.php';
 
 <div class="txn-split">
   <?php
-  render_txn_column($creditData, 'credit', 'credit_page', $baseQueryParams);
-  render_txn_column($debitData, 'debit', 'debit_page', $baseQueryParams);
+  render_txn_column($pdo, $creditData, 'credit', 'credit_page', $baseQueryParams);
+  render_txn_column($pdo, $debitData, 'debit', 'debit_page', $baseQueryParams);
   ?>
 </div>
 

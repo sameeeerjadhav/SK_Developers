@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, status=?, notes=? WHERE id=?');
             $stmt->execute([$customerId, $companyId, $projectId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $editId]);
             audit_log($pdo, 'update', 'booking', $editId, 'Updated booking #' . $editId);
+            sync_booking_ledger_project($pdo, $editId, $projectId);
             flash('success', 'Booking updated.');
         } else {
             $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
@@ -189,8 +190,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = ($paymentType === 'received' ? 'Booking payment' : 'Booking refund') . ' — ' . $payment['customer_name'] . ' — ' . $propertyLabel;
 
         if ($payment['transaction_id'] && $categoryId) {
-            $pdo->prepare('UPDATE transactions SET category_id=?, txn_type=?, amount=?, txn_date=?, description=? WHERE id=?')
-                ->execute([$categoryId, $txnType, $amount, $paymentDate, $description, $payment['transaction_id']]);
+            $projectId = $payment['project_id'] ? (int) $payment['project_id'] : null;
+            $pdo->prepare('UPDATE transactions SET category_id=?, txn_type=?, amount=?, txn_date=?, description=?, project_id=? WHERE id=?')
+                ->execute([$categoryId, $txnType, $amount, $paymentDate, $description, $projectId, $payment['transaction_id']]);
         }
 
         $pdo->prepare('UPDATE booking_payments SET payment_type=?, amount=?, payment_date=?, notes=? WHERE id=?')

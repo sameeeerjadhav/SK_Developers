@@ -579,6 +579,79 @@ function create_transaction(
     return (int) $pdo->lastInsertId();
 }
 
+/**
+ * Finds the booking a ledger row belongs to.
+ * Linked = this transaction is stored on booking_payments. Unlinked booking credits
+ * (CSV / manual duplicates) are matched by company, amount, date and project.
+ *
+ * @return array{booking_id: int, linked: bool}
+ */
+function booking_match_for_transaction(PDO $pdo, array $row): array
+{
+    $txnId = (int) ($row['id'] ?? 0);
+    if ($txnId > 0) {
+        $stmt = $pdo->prepare('SELECT booking_id FROM booking_payments WHERE transaction_id = ? ORDER BY id DESC LIMIT 1');
+        $stmt->execute([$txnId]);
+        $fromPay = (int) ($stmt->fetchColumn() ?: 0);
+        if ($fromPay > 0) {
+            return ['booking_id' => $fromPay, 'linked' => true];
+        }
+    }
+
+    $direct = (int) ($row['booking_id'] ?? 0);
+    if ($direct > 0) {
+        $chk = $pdo->prepare('SELECT id FROM bookings WHERE id = ?');
+        $chk->execute([$direct]);
+        if ($chk->fetchColumn()) {
+            return ['booking_id' => $direct, 'linked' => true];
+        }
+    }
+
+    $companyId = (int) ($row['company_id'] ?? 0);
+    $amount = round((float) ($row['amount'] ?? 0), 2);
+    $date = (string) ($row['txn_date'] ?? '');
+    $projectId = (int) ($row['project_id'] ?? 0);
+    if ($companyId && $amount > 0 && $date !== '') {
+        $sql = 'SELECT bp.booking_id
+                FROM booking_payments bp
+                JOIN bookings b ON b.id = bp.booking_id
+                WHERE b.company_id = ? AND bp.amount = ? AND bp.payment_date = ?';
+        $params = [$companyId, $amount, $date];
+        if ($projectId > 0) {
+            $sql .= ' AND b.project_id = ?';
+            $params[] = $projectId;
+        }
+        $sql .= ' ORDER BY bp.id DESC LIMIT 1';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $found = (int) ($stmt->fetchColumn() ?: 0);
+        if ($found > 0) {
+            return ['booking_id' => $found, 'linked' => false];
+        }
+    }
+
+    if ($projectId > 0 && $companyId) {
+        $stmt = $pdo->prepare('SELECT id FROM bookings WHERE project_id = ? AND company_id = ? ORDER BY id DESC');
+        $stmt->execute([$projectId, $companyId]);
+        $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        if (count($ids) === 1) {
+            return ['booking_id' => (int) $ids[0], 'linked' => false];
+        }
+    }
+
+    return ['booking_id' => 0, 'linked' => false];
+}
+
+function sync_booking_ledger_project(PDO $pdo, int $bookingId, ?int $projectId): void
+{
+    $pdo->prepare(
+        'UPDATE transactions t
+         JOIN booking_payments bp ON bp.transaction_id = t.id
+         SET t.project_id = ?
+         WHERE bp.booking_id = ?'
+    )->execute([$projectId, $bookingId]);
+}
+
 function sum_transactions(
     PDO $pdo,
     string $txnType,

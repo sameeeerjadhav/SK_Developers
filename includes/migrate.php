@@ -536,6 +536,18 @@ function migrate_partner_advance_categories(PDO $pdo): void
             $ins->execute([$catSection, $catName, $catSlug, $catSort]);
         }
     }
+
+    try {
+        $pdo->exec(
+            'UPDATE transactions t
+             INNER JOIN booking_payments bp ON bp.transaction_id = t.id
+             INNER JOIN bookings b ON b.id = bp.booking_id
+             SET t.project_id = b.project_id
+             WHERE b.project_id IS NOT NULL
+               AND (t.project_id IS NULL OR t.project_id <> b.project_id)'
+        );
+    } catch (Throwable $e) {
+    }
 }
 
 function migrate_category_section(PDO $pdo, string $slug, string $fromSection, string $toSection, int $sortOrder): void
