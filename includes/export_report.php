@@ -367,6 +367,7 @@ function report_excel_data_row(array $row, array $columns, bool $isTotal): strin
 
 function report_pdf_stream(string $filename, array $report): void
 {
+    sk_require_pdf();
     $title = (string) ($report['title'] ?? 'REPORT');
     $orientation = $report['orientation'] ?? 'landscape';
     ob_start();

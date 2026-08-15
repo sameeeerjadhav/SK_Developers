@@ -679,6 +679,7 @@ if (in_array($exportAction, ['csv', 'excel', 'pdf'], true)) {
     }
 
     // PDF: real Dompdf download (not browser print)
+    sk_require_pdf();
     $generatedAt = date('d-m-Y, h:i A');
     $generatedBy = current_user()['name'] ?? '';
     $interestChargesLabel = $summaryInterestCharges !== null ? money($summaryInterestCharges) : '—';

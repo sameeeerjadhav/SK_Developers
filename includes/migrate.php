@@ -490,6 +490,11 @@ function ensure_v2_schema(PDO $pdo): void
     ensure_db_index($pdo, 'transactions', 'idx_txn_company_date', 'company_id, txn_date');
     ensure_db_index($pdo, 'transactions', 'idx_txn_type_date', 'txn_type, txn_date');
     ensure_db_index($pdo, 'transactions', 'idx_txn_category', 'category_id');
+    ensure_db_index($pdo, 'transactions', 'idx_txn_project', 'project_id');
+    ensure_db_index($pdo, 'transactions', 'idx_txn_project_date', 'project_id, txn_date');
+    ensure_db_index($pdo, 'booking_payments', 'idx_bp_transaction', 'transaction_id');
+    ensure_db_index($pdo, 'bookings', 'idx_bookings_project', 'project_id');
+    ensure_db_index($pdo, 'loan_emis', 'idx_emi_status_due', 'status, due_date');
 
     @file_put_contents($marker, $version);
 }

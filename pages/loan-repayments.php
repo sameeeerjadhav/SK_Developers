@@ -176,6 +176,7 @@ function loan_repayments_output_pdf(
     array $byLender,
     string $scopeNote
 ): void {
+    sk_require_pdf();
     if (function_exists('ini_set')) {
         @ini_set('memory_limit', '256M');
     }

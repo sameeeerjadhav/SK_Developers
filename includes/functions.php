@@ -13,6 +13,17 @@ function app_config(?string $key = null, $default = null)
     return $cfg[$key] ?? $default;
 }
 
+/** Lazy-load Dompdf helpers only when exporting a PDF. */
+function sk_require_pdf(): void
+{
+    static $loaded = false;
+    if ($loaded) {
+        return;
+    }
+    require_once __DIR__ . '/pdf.php';
+    $loaded = true;
+}
+
 function base_url(string $path = ''): string
 {
     $configured = rtrim((string) app_config('base_url', ''), '/');
@@ -359,7 +370,7 @@ function system_notifications(PDO $pdo, bool $forceRefresh = false): array
         return $requestCache;
     }
 
-    $ttl = 300; // 5 minutes — avoids heavy queries on every page navigation
+    $ttl = 600; // 10 minutes — notifications are advisory, not live critical
     if (
         !$forceRefresh
         && isset($_SESSION['notif_cache'], $_SESSION['notif_cache_at'])
@@ -372,7 +383,13 @@ function system_notifications(PDO $pdo, bool $forceRefresh = false): array
 
     $notes = [];
     try {
-        $due = $pdo->query("SELECT e.*, l.lender_name FROM loan_emis e JOIN bank_loans l ON l.id = e.loan_id WHERE e.status IN ('pending','partial') AND e.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY) ORDER BY e.due_date ASC LIMIT 10")->fetchAll();
+        $due = $pdo->query("SELECT e.id, e.loan_id, e.installment_no, e.due_date, e.amount, e.paid_amount, l.lender_name
+            FROM loan_emis e
+            JOIN bank_loans l ON l.id = e.loan_id
+            WHERE e.status IN ('pending','partial')
+              AND e.due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+            ORDER BY e.due_date ASC
+            LIMIT 10")->fetchAll();
         foreach ($due as $row) {
             $notes[] = [
                 'type' => strtotime($row['due_date']) < strtotime('today') ? 'danger' : 'warning',
@@ -385,7 +402,11 @@ function system_notifications(PDO $pdo, bool $forceRefresh = false): array
     }
 
     try {
-        $deps = $pdo->query("SELECT * FROM deposits WHERE status='active' AND maturity_date IS NOT NULL AND maturity_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) ORDER BY maturity_date ASC LIMIT 8")->fetchAll();
+        $deps = $pdo->query("SELECT id, title, amount, maturity_date FROM deposits
+            WHERE status='active' AND maturity_date IS NOT NULL
+              AND maturity_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+            ORDER BY maturity_date ASC
+            LIMIT 8")->fetchAll();
         foreach ($deps as $d) {
             $notes[] = [
                 'type' => 'info',
@@ -398,24 +419,36 @@ function system_notifications(PDO $pdo, bool $forceRefresh = false): array
     }
 
     try {
-        $lowBal = $pdo->query(
-            'SELECT ba.id, ba.account_name,
-                    ba.opening_balance
-                    + COALESCE(SUM(CASE WHEN t.txn_type = "credit" THEN t.amount WHEN t.txn_type = "debit" THEN -t.amount ELSE 0 END), 0) AS balance
-             FROM bank_accounts ba
-             LEFT JOIN transactions t ON t.bank_account_id = ba.id
-             WHERE ba.status = "active"
-             GROUP BY ba.id, ba.account_name, ba.opening_balance
-             HAVING balance < 10000
-             ORDER BY balance ASC
-             LIMIT 10'
+        // Faster than JOIN+GROUP BY on every page: aggregate nets once, then filter in PHP.
+        $accounts = $pdo->query(
+            "SELECT id, account_name, opening_balance FROM bank_accounts WHERE status = 'active'"
         )->fetchAll();
-        foreach ($lowBal as $acc) {
-            $bal = (float) $acc['balance'];
+        $nets = [];
+        if ($accounts) {
+            $netRows = $pdo->query(
+                "SELECT bank_account_id,
+                        COALESCE(SUM(CASE WHEN txn_type = 'credit' THEN amount ELSE -amount END), 0) AS net
+                 FROM transactions
+                 WHERE bank_account_id IS NOT NULL
+                 GROUP BY bank_account_id"
+            )->fetchAll();
+            foreach ($netRows as $nr) {
+                $nets[(int) $nr['bank_account_id']] = (float) $nr['net'];
+            }
+        }
+        $low = [];
+        foreach ($accounts as $acc) {
+            $bal = (float) $acc['opening_balance'] + ($nets[(int) $acc['id']] ?? 0.0);
+            if ($bal < 10000) {
+                $low[] = ['id' => (int) $acc['id'], 'account_name' => $acc['account_name'], 'balance' => $bal];
+            }
+        }
+        usort($low, static fn($a, $b) => $a['balance'] <=> $b['balance']);
+        foreach (array_slice($low, 0, 10) as $acc) {
             $notes[] = [
                 'type' => 'warning',
                 'title' => 'Low balance — ' . $acc['account_name'],
-                'body' => 'Live balance ' . money($bal),
+                'body' => 'Live balance ' . money($acc['balance']),
                 'href' => 'pages/bank-account-view.php?id=' . $acc['id'],
             ];
         }
