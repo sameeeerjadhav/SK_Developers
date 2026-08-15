@@ -34,6 +34,35 @@
     });
   }
 
+  // Keep sidebar scroll position across full-page navigations
+  (function () {
+    var nav = document.getElementById('sidebarNav') || (sidebar && sidebar.querySelector('.nav'));
+    if (!nav) return;
+    var key = 'sk_dev_sidebar_scroll';
+
+    function persist() {
+      try { sessionStorage.setItem(key, String(nav.scrollTop)); } catch (e) {}
+    }
+
+    function restore() {
+      try {
+        var saved = sessionStorage.getItem(key);
+        if (saved === null) return;
+        var top = parseInt(saved, 10) || 0;
+        nav.scrollTop = top;
+        // Re-apply after layout settles (fonts / active styles)
+        requestAnimationFrame(function () { nav.scrollTop = top; });
+      } catch (e) {}
+    }
+
+    restore();
+    nav.addEventListener('scroll', persist, { passive: true });
+    nav.querySelectorAll('a.nav-link').forEach(function (link) {
+      link.addEventListener('click', persist);
+    });
+    window.addEventListener('pagehide', persist);
+  })();
+
   window.addEventListener('resize', function () {
     if (window.matchMedia('(min-width: 901px)').matches) closeSidebar();
   });

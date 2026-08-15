@@ -87,7 +87,7 @@ function nav_icon(string $name): string
         <div class="brand-sub">Developers Finance</div>
       </div>
     </div>
-    <nav class="nav">
+    <nav class="nav" id="sidebarNav">
       <?php foreach ($nav as $section): ?>
         <div class="nav-section"><?= e($section['label']) ?></div>
         <?php foreach ($section['items'] as $item): ?>
