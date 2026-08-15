@@ -8,6 +8,7 @@ $filterCompany = (int) get('company_id', 0);
 
 $overall = summary_totals($pdo, $filterCompany ?: null, $from, $to);
 $companies = $pdo->query('SELECT * FROM companies WHERE status = "active" ORDER BY type ASC, id ASC')->fetchAll();
+$byCompany = !$filterCompany ? summary_totals_by_company($pdo, $from, $to) : [];
 
 $scopeName = 'All companies (group total)';
 if ($filterCompany) {
@@ -47,7 +48,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     if (!$filterCompany) {
         $coRows = [];
         foreach ($companies as $i => $co) {
-            $s = summary_totals($pdo, (int) $co['id'], $from, $to);
+            $s = $byCompany[(int) $co['id']] ?? summary_totals_empty();
             $coRows[] = [
                 (string) ($i + 1),
                 $co['name'],
@@ -193,7 +194,7 @@ require __DIR__ . '/../includes/header.php';
       </thead>
       <tbody>
         <?php foreach ($companies as $co):
-          $s = summary_totals($pdo, (int) $co['id'], $from, $to);
+          $s = $byCompany[(int) $co['id']] ?? summary_totals_empty();
         ?>
           <tr>
             <td>

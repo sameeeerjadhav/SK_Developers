@@ -307,39 +307,52 @@ function company_project_counts(PDO $pdo): array
 /**
  * All active bank account balances in one query (per request cache).
  *
- * @return array<int,float> account_id => balance
+ * @return array<int,array{balance:float,company_id:int,account_name:string}>
  */
-function account_balance_map(PDO $pdo): array
+function account_balance_details(PDO $pdo): array
 {
-    static $map = null;
-    if ($map !== null) {
-        return $map;
+    static $details = null;
+    if ($details !== null) {
+        return $details;
     }
-    $sql = 'SELECT ba.id, ba.company_id,
+    $sql = 'SELECT ba.id, ba.company_id, ba.account_name,
             ba.opening_balance
             + COALESCE(SUM(CASE WHEN t.txn_type = "credit" THEN t.amount WHEN t.txn_type = "debit" THEN -t.amount ELSE 0 END), 0) AS balance
             FROM bank_accounts ba
             LEFT JOIN transactions t ON t.bank_account_id = ba.id
             WHERE ba.status = "active"
-            GROUP BY ba.id, ba.company_id, ba.opening_balance';
-    $map = [];
+            GROUP BY ba.id, ba.company_id, ba.account_name, ba.opening_balance';
+    $details = [];
     foreach ($pdo->query($sql) as $row) {
-        $map[(int) $row['id']] = (float) $row['balance'];
+        $details[(int) $row['id']] = [
+            'balance' => (float) $row['balance'],
+            'company_id' => (int) $row['company_id'],
+            'account_name' => (string) $row['account_name'],
+        ];
+    }
+    return $details;
+}
+
+/**
+ * @return array<int,float> account_id => balance
+ */
+function account_balance_map(PDO $pdo): array
+{
+    $map = [];
+    foreach (account_balance_details($pdo) as $id => $row) {
+        $map[$id] = $row['balance'];
     }
     return $map;
 }
 
 function total_bank_balance(PDO $pdo, ?int $companyId = null): float
 {
-    $map = account_balance_map($pdo);
-    if (!$companyId) {
-        return array_sum($map);
-    }
-    $stmt = $pdo->prepare('SELECT id FROM bank_accounts WHERE status = "active" AND company_id = ?');
-    $stmt->execute([$companyId]);
     $total = 0.0;
-    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
-        $total += $map[(int) $id] ?? 0.0;
+    foreach (account_balance_details($pdo) as $row) {
+        if ($companyId !== null && $row['company_id'] !== $companyId) {
+            continue;
+        }
+        $total += $row['balance'];
     }
     return $total;
 }
@@ -351,6 +364,9 @@ function notification_count(PDO $pdo): int
 
 function setup_progress(PDO $pdo): array
 {
+    if (!empty($_SESSION['setup_complete'])) {
+        return ['steps' => [], 'done' => 3, 'total' => 3, 'complete' => true];
+    }
     $accounts = (int) $pdo->query('SELECT COUNT(*) FROM bank_accounts')->fetchColumn();
     $projects = (int) $pdo->query('SELECT COUNT(*) FROM projects')->fetchColumn();
     $txns = (int) $pdo->query('SELECT COUNT(*) FROM transactions')->fetchColumn();
@@ -360,7 +376,11 @@ function setup_progress(PDO $pdo): array
         ['key' => 'txn', 'label' => 'Record first transaction', 'done' => $txns > 0, 'href' => 'pages/transactions.php?action=add'],
     ];
     $done = count(array_filter($steps, fn($s) => $s['done']));
-    return ['steps' => $steps, 'done' => $done, 'total' => count($steps), 'complete' => $done === count($steps)];
+    $complete = $done === count($steps);
+    if ($complete) {
+        $_SESSION['setup_complete'] = 1;
+    }
+    return ['steps' => $steps, 'done' => $done, 'total' => count($steps), 'complete' => $complete];
 }
 
 function system_notifications(PDO $pdo, bool $forceRefresh = false): array
@@ -419,28 +439,11 @@ function system_notifications(PDO $pdo, bool $forceRefresh = false): array
     }
 
     try {
-        // Faster than JOIN+GROUP BY on every page: aggregate nets once, then filter in PHP.
-        $accounts = $pdo->query(
-            "SELECT id, account_name, opening_balance FROM bank_accounts WHERE status = 'active'"
-        )->fetchAll();
-        $nets = [];
-        if ($accounts) {
-            $netRows = $pdo->query(
-                "SELECT bank_account_id,
-                        COALESCE(SUM(CASE WHEN txn_type = 'credit' THEN amount ELSE -amount END), 0) AS net
-                 FROM transactions
-                 WHERE bank_account_id IS NOT NULL
-                 GROUP BY bank_account_id"
-            )->fetchAll();
-            foreach ($netRows as $nr) {
-                $nets[(int) $nr['bank_account_id']] = (float) $nr['net'];
-            }
-        }
+        // Reuse the same balance map as summary — avoid a second full ledger scan.
         $low = [];
-        foreach ($accounts as $acc) {
-            $bal = (float) $acc['opening_balance'] + ($nets[(int) $acc['id']] ?? 0.0);
-            if ($bal < 10000) {
-                $low[] = ['id' => (int) $acc['id'], 'account_name' => $acc['account_name'], 'balance' => $bal];
+        foreach (account_balance_details($pdo) as $id => $acc) {
+            if ($acc['balance'] < 10000) {
+                $low[] = ['id' => $id, 'account_name' => $acc['account_name'], 'balance' => $acc['balance']];
             }
         }
         usort($low, static fn($a, $b) => $a['balance'] <=> $b['balance']);
@@ -763,54 +766,206 @@ function summary_totals(PDO $pdo, ?int $companyId = null, ?string $from = null, 
         return $cache[$cacheKey];
     }
 
-    $creditInvestment = sum_by_category_slug($pdo, 'credit', 'investment', $companyId, $from, $to)
-        + sum_by_category_slug($pdo, 'credit', 'daily_credit', $companyId, $from, $to)
-        + sum_by_category_slug($pdo, 'credit', 'monthly_credit', $companyId, $from, $to);
-    $creditPartner = sum_by_category_slug($pdo, 'credit', 'partner', $companyId, $from, $to)
-        + sum_by_category_slug($pdo, 'credit', 'partner_capital', $companyId, $from, $to)
-        + sum_by_category_slug($pdo, 'credit', 'partner_advance', $companyId, $from, $to);
-    $creditBooking = sum_by_category_slug($pdo, 'credit', 'booking', $companyId, $from, $to);
-    $expenses = sum_transactions($pdo, 'debit', $companyId, null, 'expense', $from, $to)
-        + sum_transactions($pdo, 'debit', $companyId, null, 'land_purchase', $from, $to);
-    $bankLoanCredits = sum_by_category_slug($pdo, 'credit', 'bank_loan', $companyId, $from, $to);
-
+    // One pass over transactions for all headline credit/debit buckets.
+    $sql = 'SELECT
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" THEN t.amount ELSE 0 END), 0) AS credits,
+        COALESCE(SUM(CASE WHEN t.txn_type = "debit" THEN t.amount ELSE 0 END), 0) AS debits,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug IN ("investment","daily_credit","monthly_credit") THEN t.amount ELSE 0 END), 0) AS investment,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug IN ("partner","partner_capital","partner_advance") THEN t.amount ELSE 0 END), 0) AS partner,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug = "booking" THEN t.amount ELSE 0 END), 0) AS booking,
+        COALESCE(SUM(CASE WHEN t.txn_type = "debit" AND c.section IN ("expense","land_purchase") THEN t.amount ELSE 0 END), 0) AS expense,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug = "bank_loan" THEN t.amount ELSE 0 END), 0) AS loan_credits
+        FROM transactions t
+        JOIN categories c ON c.id = t.category_id
+        WHERE 1=1';
     $params = [];
+    if ($companyId) {
+        $sql .= ' AND t.company_id = ?';
+        $params[] = $companyId;
+    }
+    apply_date_range($sql, $params, $from, $to);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $agg = $stmt->fetch() ?: [];
+
+    $sideParams = [];
     $loanSql = 'SELECT COALESCE(SUM(outstanding_amount),0) FROM bank_loans WHERE status = "active"';
     $assetSql = 'SELECT COALESCE(SUM(COALESCE(current_value, purchase_value)),0) FROM assets WHERE 1=1';
     $depositSql = 'SELECT COALESCE(SUM(amount),0) FROM deposits WHERE status = "active"';
-
     if ($companyId) {
         $loanSql .= ' AND company_id = ?';
         $assetSql .= ' AND company_id = ?';
         $depositSql .= ' AND company_id = ?';
-        $params = [$companyId];
+        $sideParams = [$companyId];
     }
-
-    $outstandingLoans = scalar_sum($pdo, $loanSql, $params);
-    $assets = scalar_sum($pdo, $assetSql, $params);
-    $deposits = scalar_sum($pdo, $depositSql, $params);
-
-    $bankBalance = total_bank_balance($pdo, $companyId);
-
-    $credits = sum_transactions($pdo, 'credit', $companyId, null, null, $from, $to);
-    $debits = sum_transactions($pdo, 'debit', $companyId, null, null, $from, $to);
+    $outstandingLoans = scalar_sum($pdo, $loanSql, $sideParams);
+    $assets = scalar_sum($pdo, $assetSql, $sideParams);
+    $deposits = scalar_sum($pdo, $depositSql, $sideParams);
+    $bankLoanCredits = (float) ($agg['loan_credits'] ?? 0);
+    $credits = (float) ($agg['credits'] ?? 0);
+    $debits = (float) ($agg['debits'] ?? 0);
 
     $cache[$cacheKey] = [
-        'investment'   => $creditInvestment,
-        'partner'      => $creditPartner,
-        'booking'      => $creditBooking,
-        'expense'      => $expenses,
+        'investment'   => (float) ($agg['investment'] ?? 0),
+        'partner'      => (float) ($agg['partner'] ?? 0),
+        'booking'      => (float) ($agg['booking'] ?? 0),
+        'expense'      => (float) ($agg['expense'] ?? 0),
         'bank_loans'   => $outstandingLoans > 0 ? $outstandingLoans : $bankLoanCredits,
         'loan_credits' => $bankLoanCredits,
         'assets'       => $assets,
         'deposits'     => $deposits,
-        'bank_balance' => $bankBalance,
+        'bank_balance' => total_bank_balance($pdo, $companyId),
         'cash_balance' => cash_balance($pdo, $companyId),
         'profit'       => $credits - $debits,
         'credits'      => $credits,
         'debits'       => $debits,
     ];
     return $cache[$cacheKey];
+}
+
+/**
+ * Company-wise summary in a few queries (for Total Summary table / export).
+ *
+ * @return array<int,array<string,float>>
+ */
+function summary_totals_by_company(PDO $pdo, ?string $from = null, ?string $to = null): array
+{
+    static $cache = [];
+    $key = ($from ?? '') . '|' . ($to ?? '');
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+
+    $sql = 'SELECT t.company_id,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" THEN t.amount ELSE 0 END), 0) AS credits,
+        COALESCE(SUM(CASE WHEN t.txn_type = "debit" THEN t.amount ELSE 0 END), 0) AS debits,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug IN ("investment","daily_credit","monthly_credit") THEN t.amount ELSE 0 END), 0) AS investment,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug IN ("partner","partner_capital","partner_advance") THEN t.amount ELSE 0 END), 0) AS partner,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug = "booking" THEN t.amount ELSE 0 END), 0) AS booking,
+        COALESCE(SUM(CASE WHEN t.txn_type = "debit" AND c.section IN ("expense","land_purchase") THEN t.amount ELSE 0 END), 0) AS expense,
+        COALESCE(SUM(CASE WHEN t.txn_type = "credit" AND c.slug = "bank_loan" THEN t.amount ELSE 0 END), 0) AS loan_credits
+        FROM transactions t
+        JOIN categories c ON c.id = t.category_id
+        WHERE 1=1';
+    $params = [];
+    apply_date_range($sql, $params, $from, $to);
+    $sql .= ' GROUP BY t.company_id';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    $out = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $cid = (int) $row['company_id'];
+        $credits = (float) $row['credits'];
+        $debits = (float) $row['debits'];
+        $loanCredits = (float) $row['loan_credits'];
+        $out[$cid] = [
+            'investment' => (float) $row['investment'],
+            'partner' => (float) $row['partner'],
+            'booking' => (float) $row['booking'],
+            'expense' => (float) $row['expense'],
+            'loan_credits' => $loanCredits,
+            'bank_loans' => $loanCredits,
+            'assets' => 0.0,
+            'deposits' => 0.0,
+            'bank_balance' => 0.0,
+            'cash_balance' => 0.0,
+            'credits' => $credits,
+            'debits' => $debits,
+            'profit' => $credits - $debits,
+        ];
+    }
+
+    foreach ($pdo->query('SELECT company_id, COALESCE(SUM(outstanding_amount),0) AS total FROM bank_loans WHERE status="active" GROUP BY company_id') as $row) {
+        $cid = (int) $row['company_id'];
+        if (!isset($out[$cid])) {
+            $out[$cid] = summary_totals_empty();
+        }
+        $out[$cid]['bank_loans'] = (float) $row['total'] > 0 ? (float) $row['total'] : $out[$cid]['loan_credits'];
+    }
+    foreach ($pdo->query('SELECT company_id, COALESCE(SUM(COALESCE(current_value, purchase_value)),0) AS total FROM assets GROUP BY company_id') as $row) {
+        $cid = (int) $row['company_id'];
+        if (!isset($out[$cid])) {
+            $out[$cid] = summary_totals_empty();
+        }
+        $out[$cid]['assets'] = (float) $row['total'];
+    }
+    foreach ($pdo->query('SELECT company_id, COALESCE(SUM(amount),0) AS total FROM deposits WHERE status="active" GROUP BY company_id') as $row) {
+        $cid = (int) $row['company_id'];
+        if (!isset($out[$cid])) {
+            $out[$cid] = summary_totals_empty();
+        }
+        $out[$cid]['deposits'] = (float) $row['total'];
+    }
+    foreach (account_balance_details($pdo) as $acc) {
+        $cid = $acc['company_id'];
+        if (!isset($out[$cid])) {
+            $out[$cid] = summary_totals_empty();
+        }
+        $out[$cid]['bank_balance'] += $acc['balance'];
+    }
+
+    // Cash-in-hand by company (no bank account linked)
+    $cashSql = "SELECT company_id,
+        COALESCE(SUM(CASE WHEN txn_type='credit' THEN amount ELSE 0 END),0)
+      - COALESCE(SUM(CASE WHEN txn_type='debit' THEN amount ELSE 0 END),0) AS bal
+        FROM transactions WHERE bank_account_id IS NULL GROUP BY company_id";
+    foreach ($pdo->query($cashSql) as $row) {
+        $cid = (int) $row['company_id'];
+        if (!isset($out[$cid])) {
+            $out[$cid] = summary_totals_empty();
+        }
+        $out[$cid]['cash_balance'] = (float) $row['bal'];
+    }
+
+    $cache[$key] = $out;
+    return $out;
+}
+
+/** @return array<string,float> */
+function summary_totals_empty(): array
+{
+    return [
+        'investment' => 0.0, 'partner' => 0.0, 'booking' => 0.0, 'expense' => 0.0,
+        'bank_loans' => 0.0, 'loan_credits' => 0.0, 'assets' => 0.0, 'deposits' => 0.0,
+        'bank_balance' => 0.0, 'cash_balance' => 0.0, 'profit' => 0.0, 'credits' => 0.0, 'debits' => 0.0,
+    ];
+}
+
+/**
+ * Credits/debits/profit for many projects in one query.
+ *
+ * @param list<int> $projectIds
+ * @return array<int,array{credits:float,debits:float,profit:float}>
+ */
+function project_credit_debit_map(PDO $pdo, array $projectIds, ?string $from = null, ?string $to = null): array
+{
+    $projectIds = array_values(array_unique(array_filter(array_map('intval', $projectIds))));
+    $out = [];
+    foreach ($projectIds as $id) {
+        $out[$id] = ['credits' => 0.0, 'debits' => 0.0, 'profit' => 0.0];
+    }
+    if (!$projectIds) {
+        return $out;
+    }
+    $ph = implode(',', array_fill(0, count($projectIds), '?'));
+    $sql = "SELECT project_id,
+            COALESCE(SUM(CASE WHEN txn_type='credit' THEN amount ELSE 0 END),0) AS credits,
+            COALESCE(SUM(CASE WHEN txn_type='debit' THEN amount ELSE 0 END),0) AS debits
+            FROM transactions
+            WHERE project_id IN ($ph)";
+    $params = $projectIds;
+    apply_date_range($sql, $params, $from, $to);
+    $sql .= ' GROUP BY project_id';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    foreach ($stmt->fetchAll() as $row) {
+        $pid = (int) $row['project_id'];
+        $credits = (float) $row['credits'];
+        $debits = (float) $row['debits'];
+        $out[$pid] = ['credits' => $credits, 'debits' => $debits, 'profit' => $credits - $debits];
+    }
+    return $out;
 }
 
 function uploads_dir(): string

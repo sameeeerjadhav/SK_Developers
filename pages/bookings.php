@@ -621,20 +621,6 @@ $stmt->execute($params);
 $bookings = $stmt->fetchAll();
 
 $paymentsByBooking = [];
-if ($bookings) {
-    $bookingIds = array_map(fn($b) => (int) $b['id'], $bookings);
-    $ph = implode(',', array_fill(0, count($bookingIds), '?'));
-    $paySql = "SELECT * FROM booking_payments WHERE booking_id IN ($ph)";
-    $payParams = $bookingIds;
-    apply_date_range($paySql, $payParams, $filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, 'payment_date');
-    $paySql .= ' ORDER BY payment_date DESC, id DESC';
-    $payStmt = $pdo->prepare($paySql);
-    $payStmt->execute($payParams);
-    foreach ($payStmt->fetchAll() as $pay) {
-        $paymentsByBooking[(int) $pay['booking_id']][] = $pay;
-    }
-}
-
 $totalSaleValue = array_sum(array_map(fn($b) => (float) $b['total_amount'], $bookings));
 $totalReceived = array_sum(array_map(fn($b) => (float) $b['received'], $bookings));
 $totalReturned = array_sum(array_map(fn($b) => (float) $b['returned'], $bookings));
@@ -873,6 +859,21 @@ if ($expandId && (!isset($_GET['page']) || $_GET['page'] === '')) {
     }
 }
 $list = paginate_list($bookings);
+
+// Load payment lines only for the current page (export uses its own queries above).
+$pageBookingIds = array_map(static fn($b) => (int) $b['id'], $list['rows']);
+if ($pageBookingIds) {
+    $ph = implode(',', array_fill(0, count($pageBookingIds), '?'));
+    $paySql = "SELECT * FROM booking_payments WHERE booking_id IN ($ph)";
+    $payParams = $pageBookingIds;
+    apply_date_range($paySql, $payParams, $filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null, 'payment_date');
+    $paySql .= ' ORDER BY payment_date DESC, id DESC';
+    $payStmt = $pdo->prepare($paySql);
+    $payStmt->execute($payParams);
+    foreach ($payStmt->fetchAll() as $pay) {
+        $paymentsByBooking[(int) $pay['booking_id']][] = $pay;
+    }
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>

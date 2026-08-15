@@ -189,6 +189,8 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $projects = $stmt->fetchAll();
 $list = paginate_list($projects);
+$pageIds = array_map(static fn($p) => (int) $p['id'], $list['rows']);
+$projectTotals = project_credit_debit_map($pdo, $pageIds, $txnFrom, $txnTo);
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -263,9 +265,10 @@ require __DIR__ . '/../includes/header.php';
         </thead>
         <tbody>
           <?php foreach ($list['rows'] as $p):
-            $credits = sum_transactions($pdo, 'credit', null, (int) $p['id'], null, $txnFrom, $txnTo);
-            $debits = sum_transactions($pdo, 'debit', null, (int) $p['id'], null, $txnFrom, $txnTo);
-            $profit = $credits - $debits;
+            $tot = $projectTotals[(int) $p['id']] ?? ['credits' => 0.0, 'debits' => 0.0, 'profit' => 0.0];
+            $credits = $tot['credits'];
+            $debits = $tot['debits'];
+            $profit = $tot['profit'];
           ?>
             <tr>
               <td>
