@@ -874,6 +874,30 @@ table.data th.select-col, table.data td.select-col { width: 2.2rem; text-align: 
   .emi-pay-form { justify-content: flex-start !important; }
 }
 
+/* Modal overlay */
+.sk-modal-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  background: rgba(0,0,0,0.45); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.18s ease both;
+}
+.sk-modal {
+  background: var(--card, #fff); border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+  width: 95%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+  padding: 1.5rem; position: relative;
+  animation: fadeUp 0.22s var(--ease, ease) both;
+}
+.sk-modal-title {
+  font-size: 1.1rem; font-weight: 700; margin: 0 0 1rem;
+}
+.sk-modal-close {
+  position: absolute; top: 0.7rem; right: 0.9rem;
+  background: none; border: none; font-size: 1.4rem; cursor: pointer;
+  color: var(--muted, #888); line-height: 1;
+}
+.sk-modal-close:hover { color: var(--text, #222); }
+
 /* Prefer reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

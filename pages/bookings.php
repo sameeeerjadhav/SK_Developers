@@ -400,7 +400,7 @@ if ($action === 'add' || $action === 'edit') {
           </select>
         </div>
         <div>
-          <label style="display:flex;align-items:center;gap:0.5rem">Bank account (optional) <a href="<?= e(base_url('pages/bank-accounts.php?action=add')) ?>" target="_blank" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
+          <label style="display:flex;align-items:center;gap:0.5rem">Bank account (optional) <a href="#" class="open-add-bank-modal" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
           <select name="bank_account_id" id="booking_bank_account_id">
             <?= bank_account_options($pdo, $preCompany ?: null, ($booking['bank_account_id'] ?? null) !== null ? (int) $booking['bank_account_id'] : null, 'None') ?>
           </select>
@@ -439,7 +439,7 @@ if ($action === 'add' || $action === 'edit') {
           </div>
         </div>
         <div class="pay-bank-account-group" style="display:none">
-          <label style="display:flex;align-items:center;gap:0.5rem">Bank account <a href="<?= e(base_url('pages/bank-accounts.php?action=add')) ?>" target="_blank" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
+          <label style="display:flex;align-items:center;gap:0.5rem">Bank account <a href="#" class="open-add-bank-modal" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
           <select name="initial_bank_account_id" id="init_bank_account_id" class="pay-bank-account-select"><?= bank_account_options($pdo, $preCompany ?: null) ?></select>
         </div>
         <?php endif; ?>
@@ -451,6 +451,44 @@ if ($action === 'add' || $action === 'edit') {
         </div>
       </form>
     </div>
+
+    <div id="addBankModal" class="sk-modal-overlay" style="display:none">
+      <div class="sk-modal">
+        <button type="button" class="sk-modal-close" id="closeBankModal">&times;</button>
+        <div class="sk-modal-title">Add bank account</div>
+        <div class="form-grid" style="padding:0">
+          <div>
+            <label>Company</label>
+            <select id="modal_bank_company" required><?= company_options($pdo) ?></select>
+          </div>
+          <div>
+            <label>Account name</label>
+            <input type="text" id="modal_bank_acname" required>
+          </div>
+          <div>
+            <label>Bank name</label>
+            <input type="text" id="modal_bank_bname" required>
+          </div>
+          <div>
+            <label>Account number</label>
+            <input type="text" id="modal_bank_acno">
+          </div>
+          <div>
+            <label>IFSC</label>
+            <input type="text" id="modal_bank_ifsc">
+          </div>
+          <div>
+            <label>Opening balance (₹)</label>
+            <input type="number" step="0.01" id="modal_bank_balance" value="0">
+          </div>
+          <div class="full form-actions">
+            <button type="button" class="btn btn-primary" id="saveBankModal">Save account</button>
+          </div>
+          <div class="full" id="modal_bank_error" style="display:none;color:var(--danger,#dc2626);font-size:0.85rem"></div>
+        </div>
+      </div>
+    </div>
+
     <script>
       (function () {
         var CUSTOMER_DETAILS = <?= json_encode($customerDetailsMap) ?>;
@@ -566,6 +604,85 @@ if ($action === 'add' || $action === 'edit') {
 
         showCustomerBookings();
         togglePlotNo();
+
+        var modal = document.getElementById('addBankModal');
+        var modalCompany = document.getElementById('modal_bank_company');
+        var modalError = document.getElementById('modal_bank_error');
+        var apiUrl = <?= json_encode(base_url('api/bank-accounts.php')) ?>;
+
+        document.querySelectorAll('.open-add-bank-modal').forEach(function (link) {
+          link.addEventListener('click', function (e) {
+            e.preventDefault();
+            var companyId = document.getElementById('company_id').value;
+            if (companyId) modalCompany.value = companyId;
+            modalError.style.display = 'none';
+            modal.style.display = '';
+          });
+        });
+        document.getElementById('closeBankModal').addEventListener('click', function () {
+          modal.style.display = 'none';
+        });
+        modal.addEventListener('click', function (e) {
+          if (e.target === modal) modal.style.display = 'none';
+        });
+
+        document.getElementById('saveBankModal').addEventListener('click', function () {
+          var btn = this;
+          var acName = document.getElementById('modal_bank_acname').value.trim();
+          var bName = document.getElementById('modal_bank_bname').value.trim();
+          var cid = modalCompany.value;
+          if (!acName || !bName || !cid) {
+            modalError.textContent = 'Company, account name and bank name are required.';
+            modalError.style.display = '';
+            return;
+          }
+          btn.disabled = true;
+          btn.textContent = 'Saving…';
+          fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company_id: cid,
+              account_name: acName,
+              bank_name: bName,
+              account_number: document.getElementById('modal_bank_acno').value.trim(),
+              ifsc: document.getElementById('modal_bank_ifsc').value.trim(),
+              opening_balance: document.getElementById('modal_bank_balance').value || 0
+            })
+          })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            btn.disabled = false;
+            btn.textContent = 'Save account';
+            if (data.error) {
+              modalError.textContent = data.error;
+              modalError.style.display = '';
+              return;
+            }
+            var label = (data.account_name || '') + ' — ' + (data.bank_name || '');
+            ['booking_bank_account_id', 'init_bank_account_id'].forEach(function (selId) {
+              var sel = document.getElementById(selId);
+              if (!sel) return;
+              var opt = document.createElement('option');
+              opt.value = data.id;
+              opt.textContent = label;
+              sel.appendChild(opt);
+              sel.value = data.id;
+            });
+            document.getElementById('modal_bank_acname').value = '';
+            document.getElementById('modal_bank_bname').value = '';
+            document.getElementById('modal_bank_acno').value = '';
+            document.getElementById('modal_bank_ifsc').value = '';
+            document.getElementById('modal_bank_balance').value = '0';
+            modal.style.display = 'none';
+          })
+          .catch(function () {
+            btn.disabled = false;
+            btn.textContent = 'Save account';
+            modalError.textContent = 'Something went wrong. Try again.';
+            modalError.style.display = '';
+          });
+        });
       })();
     </script>
     <?php
