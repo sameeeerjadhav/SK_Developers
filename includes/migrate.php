@@ -485,6 +485,13 @@ function ensure_v2_schema(PDO $pdo): void
         }
     }
 
+  // bookings.bank_account_id (v12)
+    $bkCols = array_column($pdo->query('SHOW COLUMNS FROM bookings')->fetchAll(), 'Field');
+    if (!in_array('bank_account_id', $bkCols, true)) {
+        $pdo->exec('ALTER TABLE bookings ADD COLUMN bank_account_id INT UNSIGNED NULL AFTER project_id');
+        try { $pdo->exec('ALTER TABLE bookings ADD CONSTRAINT fk_booking_bank FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL'); } catch (Throwable $e) {}
+    }
+
   // Query performance indexes (safe to re-check)
     ensure_db_index($pdo, 'transactions', 'idx_txn_bank_account', 'bank_account_id');
     ensure_db_index($pdo, 'transactions', 'idx_txn_company_date', 'company_id, txn_date');

@@ -146,20 +146,25 @@
 
   document.querySelectorAll('[data-company-accounts]').forEach(function (select) {
     select.addEventListener('change', function () {
-      var targetId = select.getAttribute('data-company-accounts');
-      var target = document.getElementById(targetId);
-      if (!target) return;
+      var targetIds = (select.getAttribute('data-company-accounts') || '').split(',');
       var companyId = select.value;
       var url = select.getAttribute('data-accounts-url') || '../api/bank-accounts.php';
       var emptyLabel = select.getAttribute('data-accounts-empty-label') || 'None';
       loadJson(url + '?company_id=' + encodeURIComponent(companyId))
         .then(function (rows) {
-          fillSelect(target, rows.map(function (r) {
+          var options = rows.map(function (r) {
             return { id: r.id, label: (r.account_name || '') + ' — ' + (r.bank_name || '') };
-          }), emptyLabel);
+          });
+          targetIds.forEach(function (tid) {
+            var t = document.getElementById(tid.trim());
+            if (t) fillSelect(t, options, emptyLabel);
+          });
         })
         .catch(function () {
-          fillSelect(target, [], emptyLabel);
+          targetIds.forEach(function (tid) {
+            var t = document.getElementById(tid.trim());
+            if (t) fillSelect(t, [], emptyLabel);
+          });
         });
     });
   });

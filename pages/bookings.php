@@ -29,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!in_array($status, ['active', 'completed', 'cancelled'], true)) {
             $status = 'active';
         }
+        $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $notes = post('notes', '');
 
         $customerName = trim(post('customer_name', ''));
@@ -57,14 +58,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $userId = current_user()['id'] ?? null;
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, status=?, notes=? WHERE id=?');
-            $stmt->execute([$customerId, $companyId, $projectId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, bank_account_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, status=?, notes=? WHERE id=?');
+            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $editId]);
             audit_log($pdo, 'update', 'booking', $editId, 'Updated booking #' . $editId);
             sync_booking_ledger_project($pdo, $editId, $projectId);
             flash('success', 'Booking updated.');
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$customerId, $companyId, $projectId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $userId]);
+            $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, bank_account_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $userId]);
             $newId = (int) $pdo->lastInsertId();
             audit_log($pdo, 'create', 'booking', $newId, 'Created booking for customer #' . $customerId);
 
@@ -319,7 +320,7 @@ if ($action === 'add' || $action === 'edit') {
           <label>Company</label>
           <select name="company_id" id="company_id" required
             data-company-projects="project_id"
-            data-company-accounts="init_bank_account_id"
+            data-company-accounts="booking_bank_account_id,init_bank_account_id"
             data-projects-url="<?= e(base_url('api/projects.php')) ?>"
             data-accounts-url="<?= e(base_url('api/bank-accounts.php')) ?>">
             <?= company_options($pdo, $preCompany) ?>
@@ -388,6 +389,12 @@ if ($action === 'add' || $action === 'edit') {
             <option value="active" <?= ($booking['status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Active</option>
             <option value="completed" <?= ($booking['status'] ?? '') === 'completed' ? 'selected' : '' ?>>Completed</option>
             <option value="cancelled" <?= ($booking['status'] ?? '') === 'cancelled' ? 'selected' : '' ?>>Cancelled</option>
+          </select>
+        </div>
+        <div>
+          <label>Bank account (optional)</label>
+          <select name="bank_account_id" id="booking_bank_account_id">
+            <?= bank_account_options($pdo, $preCompany ?: null, ($booking['bank_account_id'] ?? null) !== null ? (int) $booking['bank_account_id'] : null, 'None') ?>
           </select>
         </div>
         <div class="full">
