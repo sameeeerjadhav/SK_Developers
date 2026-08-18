@@ -248,6 +248,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bankAccountId = post('bank_account_id') !== '' ? (int) post('bank_account_id') : null;
         $partnerId = post('partner_id') !== '' ? (int) post('partner_id') : null;
         $categoryId = (int) post('category_id', 0);
+            $txnTypeSelect = get('txn_type_select', post('txn_type_select', 'credit')) ?: 'credit';
+            $txnTypeSelect = in_array($txnTypeSelect, ['credit', 'debit'], true) ? $txnTypeSelect : 'credit';
         $amount = (float) post('amount', 0);
         $txnDate = post('txn_date', date('Y-m-d'));
         $reference = post('reference_no', '');
@@ -255,14 +257,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = post('description', '');
         $editId = (int) post('id', 0);
 
-        $cat = $pdo->prepare('SELECT section, slug FROM categories WHERE id = ?');
-        $cat->execute([$categoryId]);
-        $catRow = $cat->fetch();
-        if (!$catRow) {
-            flash('error', 'Invalid category.');
-            redirect('pages/transactions.php?action=add');
-        }
-        $txnType = $catRow['section'] === 'credit' ? 'credit' : 'debit';
+            $txnType = $txnTypeSelect === 'credit' ? 'credit' : 'debit';
+            if ($categoryId === 0) {
+                // "Other" category: optionally create a new category row on the fly.
+                $otherName = trim((string) post('other_name', ''));
+                if ($otherName === '') {
+                    $otherName = 'Other';
+                }
+                $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $otherName));
+                $slug = trim($slug, '-');
+                if ($slug === '') {
+                    $slug = 'other';
+                }
+                $otherSection = $txnType === 'credit' ? 'credit' : 'general';
+                $catChk = $pdo->prepare('SELECT id FROM categories WHERE section = ? AND slug = ? LIMIT 1');
+                $catChk->execute([$otherSection, $slug]);
+                $existingId = (int) ($catChk->fetchColumn() ?: 0);
+                if ($existingId > 0) {
+                    $categoryId = $existingId;
+                } else {
+                    $catIns = $pdo->prepare('INSERT INTO categories (section, name, slug, sort_order) VALUES (?,?,?,?)');
+                    $catIns->execute([$otherSection, $otherName, $slug, 999]);
+                    $categoryId = (int) $pdo->lastInsertId();
+                }
+                // "Other" categories are not partner-bound.
+                $partnerId = null;
+            } else {
+                $cat = $pdo->prepare('SELECT section, slug FROM categories WHERE id = ?');
+                $cat->execute([$categoryId]);
+                $catRow = $cat->fetch();
+                if (!$catRow) {
+                    flash('error', 'Invalid category.');
+                    redirect('pages/transactions.php?action=add');
+                }
+                $txnType = $catRow['section'] === 'credit' ? 'credit' : 'debit';
+            }
 
         if (!$companyId || !$categoryId || $amount <= 0) {
             flash('error', 'Company, category and a positive amount are required.');
@@ -271,9 +300,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Only attach partner on partner-related categories
         $partnerSlugs = ['partner', 'partner_capital', 'partner_advance', 'partner_capital_withdrawal', 'partner_advance_return'];
-        if (!in_array($catRow['slug'], $partnerSlugs, true)) {
-            $partnerId = null;
-        }
+            if ($categoryId !== 0) {
+                // If we created a category as "Other", we already forced partnerId=null above.
+                if (isset($catRow) && !in_array($catRow['slug'], $partnerSlugs, true)) {
+                    $partnerId = null;
+                }
+            }
 
         $userId = current_user()['id'] ?? null;
         $txnId = $editId;
@@ -447,14 +479,18 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <div>
           <label>Type</label>
-          <select id="txn_type_select">
+          <select id="txn_type_select" name="txn_type_select">
             <option value="credit" <?= $selectedType === 'credit' ? 'selected' : '' ?>>Credit (money in)</option>
             <option value="debit" <?= $selectedType === 'debit' ? 'selected' : '' ?>>Debit (money out)</option>
           </select>
         </div>
         <div class="full">
           <label>Category</label>
-          <select name="category_id" id="txn_category_id" required></select>
+          <select name="category_id" id="txn_category_id"></select>
+        </div>
+        <div class="full" id="other_name_group" style="display:none">
+          <label>Other name (optional)</label>
+          <input type="text" name="other_name" id="other_name" value="" disabled>
         </div>
         <div class="full">
           <label>Name (who is being paid / who this is from)</label>
@@ -518,6 +554,8 @@ if ($action === 'add' || $action === 'edit') {
         var preselectId = <?= (int) $selectedCategory ?>;
         var typeEl = document.getElementById('txn_type_select');
         var categoryEl = document.getElementById('txn_category_id');
+        var otherGroupEl = document.getElementById('other_name_group');
+        var otherInputEl = document.getElementById('other_name');
 
         function addOption(parent, opt, selectId, state) {
           var o = document.createElement('option');
@@ -554,11 +592,31 @@ if ($action === 'add' || $action === 'edit') {
               categoryEl.appendChild(group);
             });
           }
+          // Custom "Other" category.
+          var otherOpt = document.createElement('option');
+          otherOpt.value = '0';
+          otherOpt.textContent = 'Other (custom)';
+          if (selectId && Number(selectId) === 0) {
+            otherOpt.selected = true;
+            state.matched = true;
+          }
+          categoryEl.appendChild(otherOpt);
           if (!state.matched) placeholder.selected = true;
+
+          syncOther();
+        }
+
+        function syncOther() {
+          if (!otherGroupEl || !otherInputEl) return;
+          var isOther = categoryEl.value === '0';
+          otherGroupEl.style.display = isOther ? '' : 'none';
+          otherInputEl.disabled = !isOther;
         }
 
         typeEl.addEventListener('change', function () { populateCategories(null); });
         populateCategories(preselectId);
+        categoryEl.addEventListener('change', syncOther);
+        syncOther();
       })();
     </script>
     <?php
