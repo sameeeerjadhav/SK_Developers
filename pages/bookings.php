@@ -400,7 +400,7 @@ if ($action === 'add' || $action === 'edit') {
           </select>
         </div>
         <div>
-          <label>Bank account (optional)</label>
+          <label style="display:flex;align-items:center;gap:0.5rem">Bank account (optional) <a href="<?= e(base_url('pages/bank-accounts.php?action=add')) ?>" target="_blank" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
           <select name="bank_account_id" id="booking_bank_account_id">
             <?= bank_account_options($pdo, $preCompany ?: null, ($booking['bank_account_id'] ?? null) !== null ? (int) $booking['bank_account_id'] : null, 'None') ?>
           </select>
@@ -439,7 +439,7 @@ if ($action === 'add' || $action === 'edit') {
           </div>
         </div>
         <div class="pay-bank-account-group" style="display:none">
-          <label>Bank account</label>
+          <label style="display:flex;align-items:center;gap:0.5rem">Bank account <a href="<?= e(base_url('pages/bank-accounts.php?action=add')) ?>" target="_blank" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
           <select name="initial_bank_account_id" id="init_bank_account_id" class="pay-bank-account-select"><?= bank_account_options($pdo, $preCompany ?: null) ?></select>
         </div>
         <?php endif; ?>
