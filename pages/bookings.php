@@ -24,9 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $plotNo = in_array($propertyType, ['plot', 'row_house'], true) ? trim(post('plot_no', '')) : '';
         $areaSqft = (float) post('area_sqft', 0);
         $ratePerSqft = (float) post('rate_per_sqft', 0);
-        $roundOff = post('round_off') === '1' ? 1 : 0;
-        $totalAmount = $areaSqft * $ratePerSqft;
-        $totalAmount = $roundOff ? round($totalAmount) : round($totalAmount, 2);
+        $calcTotal = round($areaSqft * $ratePerSqft, 2);
+        $postedTotal = trim((string) post('total_amount', ''));
+        $totalAmount = ($postedTotal !== '' && is_numeric($postedTotal) && (float) $postedTotal > 0)
+            ? round((float) $postedTotal, 2)
+            : $calcTotal;
         $status = post('status', 'active');
         if (!in_array($status, ['active', 'completed', 'cancelled'], true)) {
             $status = 'active';
@@ -53,21 +55,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $customerId = (int) $pdo->lastInsertId();
         }
 
-        if (!$companyId || !$customerId || $areaSqft <= 0 || $ratePerSqft <= 0) {
-            flash('error', 'Company, customer, area and rate are required.');
+        if (!$companyId || !$customerId || $areaSqft <= 0 || $ratePerSqft <= 0 || $totalAmount <= 0) {
+            flash('error', 'Company, customer, area, rate and total amount are required.');
             redirect('pages/bookings.php?action=' . ($editId ? 'edit&id=' . $editId : 'add'));
         }
 
         $userId = current_user()['id'] ?? null;
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, bank_account_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, round_off=?, status=?, notes=? WHERE id=?');
-            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $roundOff, $status, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, bank_account_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, status=?, notes=? WHERE id=?');
+            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $editId]);
             audit_log($pdo, 'update', 'booking', $editId, 'Updated booking #' . $editId);
             sync_booking_ledger_project($pdo, $editId, $projectId);
             flash('success', 'Booking updated.');
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, bank_account_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, round_off, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $roundOff, $status, $notes, $userId]);
+            $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, bank_account_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $userId]);
             $newId = (int) $pdo->lastInsertId();
             audit_log($pdo, 'create', 'booking', $newId, 'Created booking for customer #' . $customerId);
 
@@ -382,14 +384,8 @@ if ($action === 'add' || $action === 'edit') {
           <input type="number" step="0.01" min="0.01" name="rate_per_sqft" id="rate_per_sqft" required value="<?= e((string) ($booking['rate_per_sqft'] ?? '')) ?>">
         </div>
         <div>
-          <label style="display:flex;align-items:center;gap:0.6rem">
-            Total amount (₹)
-            <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;color:var(--text);margin:0;cursor:pointer">
-              <input type="checkbox" id="round_off_toggle" name="round_off" value="1" style="width:auto;margin:0" <?= !empty($booking['round_off']) ? 'checked' : '' ?>>
-              Round off
-            </label>
-          </label>
-          <input type="text" id="total_amount_preview" readonly value="<?= e(money($booking['total_amount'] ?? 0)) ?>">
+          <label>Total amount (₹)</label>
+          <input type="number" step="0.01" min="0.01" name="total_amount" id="total_amount" required value="<?= e($booking ? (string) $booking['total_amount'] : '') ?>">
         </div>
         <div>
           <label>Status</label>
@@ -507,7 +503,7 @@ if ($action === 'add' || $action === 'edit') {
         var plotNoField = document.getElementById('plot_no_field');
         var areaEl = document.getElementById('area_sqft');
         var rateEl = document.getElementById('rate_per_sqft');
-        var totalPreview = document.getElementById('total_amount_preview');
+        var totalEl = document.getElementById('total_amount');
 
         function money(n) {
           return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -585,22 +581,17 @@ if ($action === 'add' || $action === 'edit') {
             label.textContent = type === 'row_house' ? 'R-H number' : 'Plot no.';
           }
         }
-        var roundOffToggle = document.getElementById('round_off_toggle');
         function recalcTotal() {
           var area = parseFloat(areaEl.value) || 0;
           var rate = parseFloat(rateEl.value) || 0;
-          var total = area * rate;
-          if (roundOffToggle.checked) {
-            total = Math.round(total);
-          }
-          totalPreview.value = money(total);
+          var total = Math.round((area * rate) * 100) / 100;
+          totalEl.value = total > 0 ? total.toFixed(2) : '';
         }
 
         customerSelect.addEventListener('change', onCustomerChange);
         propertyTypeEl.addEventListener('change', togglePlotNo);
         areaEl.addEventListener('input', recalcTotal);
         rateEl.addEventListener('input', recalcTotal);
-        roundOffToggle.addEventListener('change', recalcTotal);
 
         showCustomerBookings();
         togglePlotNo();
