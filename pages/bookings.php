@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $postedRoundOff = trim((string) post('round_off_amount', ''));
         $totalAmount = ($postedRoundOff !== '' && is_numeric($postedRoundOff) && (float) $postedRoundOff > 0)
             ? round((float) $postedRoundOff, 2)
-            : $calcTotal;
+            : (float) round($calcTotal);
         $status = post('status', 'active');
         if (!in_array($status, ['active', 'completed', 'cancelled'], true)) {
             $status = 'active';
@@ -590,9 +590,8 @@ if ($action === 'add' || $action === 'edit') {
           var area = parseFloat(areaEl.value) || 0;
           var rate = parseFloat(rateEl.value) || 0;
           var total = Math.round((area * rate) * 100) / 100;
-          var shown = total > 0 ? total.toFixed(2) : '';
-          totalPreview.value = shown;
-          roundOffEl.value = shown;
+          totalPreview.value = total > 0 ? total.toFixed(2) : '';
+          roundOffEl.value = total > 0 ? String(Math.round(total)) : '';
         }
 
         customerSelect.addEventListener('change', onCustomerChange);
