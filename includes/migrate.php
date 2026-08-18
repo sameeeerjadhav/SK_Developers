@@ -485,11 +485,14 @@ function ensure_v2_schema(PDO $pdo): void
         }
     }
 
-  // bookings.bank_account_id (v12)
+  // bookings.bank_account_id + round_off (v12)
     $bkCols = array_column($pdo->query('SHOW COLUMNS FROM bookings')->fetchAll(), 'Field');
     if (!in_array('bank_account_id', $bkCols, true)) {
         $pdo->exec('ALTER TABLE bookings ADD COLUMN bank_account_id INT UNSIGNED NULL AFTER project_id');
         try { $pdo->exec('ALTER TABLE bookings ADD CONSTRAINT fk_booking_bank FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL'); } catch (Throwable $e) {}
+    }
+    if (!in_array('round_off', $bkCols, true)) {
+        $pdo->exec('ALTER TABLE bookings ADD COLUMN round_off TINYINT(1) NOT NULL DEFAULT 0 AFTER total_amount');
     }
 
   // Query performance indexes (safe to re-check)
