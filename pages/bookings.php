@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('error', 'Select a property type.');
             redirect('pages/bookings.php?action=' . ($editId ? 'edit&id=' . $editId : 'add'));
         }
-        $plotNo = $propertyType === 'plot' ? post('plot_no', '') : '';
+        $plotNo = in_array($propertyType, ['plot', 'row_house'], true) ? trim(post('plot_no', '')) : '';
         $areaSqft = (float) post('area_sqft', 0);
         $ratePerSqft = (float) post('rate_per_sqft', 0);
         $totalAmount = round($areaSqft * $ratePerSqft, 2);
@@ -73,9 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($initialAmount > 0 || $initialReturned > 0) {
                 $initialDate = post('initial_payment_date') ?: date('Y-m-d');
                 $initialBankAccountId = post('initial_bank_account_id') !== '' ? (int) post('initial_bank_account_id') : null;
-                $propertyLabel = $propertyType === 'plot'
-                    ? ('Plot ' . ($plotNo ?: '—'))
-                    : ucwords(str_replace('_', ' ', $propertyType));
+                $propertyLabel = booking_property_label($propertyType, $plotNo);
 
                 if ($initialAmount > 0) {
                     $initCatId = category_id_by_slug($pdo, 'credit', 'booking');
@@ -123,9 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/bookings.php');
         }
 
-        $propertyLabel = $booking['property_type'] === 'plot'
-            ? ('Plot ' . ($booking['plot_no'] ?: '—'))
-            : ucwords(str_replace('_', ' ', $booking['property_type']));
+        $propertyLabel = booking_property_label($booking['property_type'] ?? '', $booking['plot_no'] ?? '');
         $userId = current_user()['id'] ?? null;
         $projectId = $booking['project_id'] ? (int) $booking['project_id'] : null;
 
@@ -180,9 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('pages/bookings.php');
         }
 
-        $propertyLabel = $payment['property_type'] === 'plot'
-            ? ('Plot ' . ($payment['plot_no'] ?: '—'))
-            : ucwords(str_replace('_', ' ', $payment['property_type']));
+        $propertyLabel = booking_property_label($payment['property_type'] ?? '', $payment['plot_no'] ?? '');
         $categorySlug = $paymentType === 'received' ? 'booking' : 'booking_refund';
         $categorySection = $paymentType === 'received' ? 'credit' : 'general';
         $categoryId = category_id_by_slug($pdo, $categorySection, $categorySlug);
@@ -291,9 +285,7 @@ if ($action === 'add' || $action === 'edit') {
          GROUP BY bk.id"
     );
     foreach ($custBookingsStmt->fetchAll() as $bk) {
-        $bkLabel = $bk['property_type'] === 'plot'
-            ? ('Plot ' . ($bk['plot_no'] ?: '—'))
-            : ucwords(str_replace('_', ' ', $bk['property_type']));
+        $bkLabel = booking_property_label($bk['property_type'] ?? '', $bk['plot_no'] ?? '');
         $customerBookingsMap[(int) $bk['customer_id']][] = [
             'id' => (int) $bk['id'],
             'label' => $bkLabel,
@@ -375,7 +367,7 @@ if ($action === 'add' || $action === 'edit') {
           </select>
         </div>
         <div id="plot_no_field" style="display:none">
-          <label>Plot no.</label>
+          <label id="plot_no_label"><?= ($booking['property_type'] ?? '') === 'row_house' ? 'R-H number' : 'Plot no.' ?></label>
           <input type="text" name="plot_no" id="plot_no" value="<?= e($booking['plot_no'] ?? '') ?>">
         </div>
         <div>
@@ -532,7 +524,13 @@ if ($action === 'add' || $action === 'edit') {
           showCustomerBookings();
         }
         function togglePlotNo() {
-          plotNoField.style.display = propertyTypeEl.value === 'plot' ? '' : 'none';
+          var type = propertyTypeEl.value;
+          var show = type === 'plot' || type === 'row_house';
+          plotNoField.style.display = show ? '' : 'none';
+          var label = document.getElementById('plot_no_label');
+          if (label) {
+            label.textContent = type === 'row_house' ? 'R-H number' : 'Plot no.';
+          }
         }
         function recalcTotal() {
           var area = parseFloat(areaEl.value) || 0;
@@ -629,10 +627,7 @@ $totalRemaining = $totalSaleValue - $totalReceived + $totalReturned;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
     verify_csrf();
     $propertyLabel = static function (array $r): string {
-        if (($r['property_type'] ?? '') === 'plot') {
-            return 'Plot ' . ($r['plot_no'] ?: '—');
-        }
-        return ucwords(str_replace('_', ' ', (string) ($r['property_type'] ?? '')));
+        return booking_property_label($r['property_type'] ?? '', $r['plot_no'] ?? '');
     };
     $selectedIds = array_values(array_unique(array_filter(array_map('intval', $_POST['payment_ids'] ?? []), fn($id) => $id > 0)));
     $exportSelectedOnly = post('export_scope', '') !== 'all' && $selectedIds !== [];
@@ -986,9 +981,7 @@ require __DIR__ . '/../includes/header.php';
             $total = (float) $b['total_amount'];
             $remaining = $total - $received + $returned;
             $detailId = 'booking-detail-' . $b['id'];
-            $propertyLabel = $b['property_type'] === 'plot'
-                ? ('Plot ' . ($b['plot_no'] ?: '—'))
-                : ucwords(str_replace('_', ' ', $b['property_type']));
+            $propertyLabel = booking_property_label($b['property_type'] ?? '', $b['plot_no'] ?? '');
             $payments = $paymentsByBooking[(int) $b['id']] ?? [];
           ?>
             <tr class="row-clickable<?= $expandId === (int) $b['id'] ? ' row-expanded' : '' ?>" data-row-toggle="<?= e($detailId) ?>">

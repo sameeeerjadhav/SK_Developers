@@ -678,6 +678,19 @@ function booking_match_for_transaction(PDO $pdo, array $row): array
     return ['booking_id' => 0, 'linked' => false];
 }
 
+function booking_property_label(?string $propertyType, ?string $plotNo = ''): string
+{
+    $type = (string) $propertyType;
+    $no = trim((string) $plotNo);
+    if ($type === 'plot') {
+        return 'Plot ' . ($no !== '' ? $no : '—');
+    }
+    if ($type === 'row_house') {
+        return 'R-H ' . ($no !== '' ? $no : '—');
+    }
+    return ucwords(str_replace('_', ' ', $type));
+}
+
 function booking_manage_href(array $match, int $txnId = 0): string
 {
     $id = (int) ($match['booking_id'] ?? 0);
