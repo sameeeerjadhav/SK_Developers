@@ -25,9 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $areaSqft = (float) post('area_sqft', 0);
         $ratePerSqft = (float) post('rate_per_sqft', 0);
         $calcTotal = round($areaSqft * $ratePerSqft, 2);
-        $postedTotal = trim((string) post('total_amount', ''));
-        $totalAmount = ($postedTotal !== '' && is_numeric($postedTotal) && (float) $postedTotal > 0)
-            ? round((float) $postedTotal, 2)
+        $postedRoundOff = trim((string) post('round_off_amount', ''));
+        $totalAmount = ($postedRoundOff !== '' && is_numeric($postedRoundOff) && (float) $postedRoundOff > 0)
+            ? round((float) $postedRoundOff, 2)
             : $calcTotal;
         $status = post('status', 'active');
         if (!in_array($status, ['active', 'completed', 'cancelled'], true)) {
@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$companyId || !$customerId || $areaSqft <= 0 || $ratePerSqft <= 0 || $totalAmount <= 0) {
-            flash('error', 'Company, customer, area, rate and total amount are required.');
+            flash('error', 'Company, customer, area, rate and round off amount are required.');
             redirect('pages/bookings.php?action=' . ($editId ? 'edit&id=' . $editId : 'add'));
         }
 
@@ -385,7 +385,11 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <div>
           <label>Total amount (₹)</label>
-          <input type="number" step="0.01" min="0.01" name="total_amount" id="total_amount" required value="<?= e($booking ? (string) $booking['total_amount'] : '') ?>">
+          <input type="text" id="total_amount_preview" readonly value="<?= e($booking ? number_format((float) $booking['area_sqft'] * (float) $booking['rate_per_sqft'], 2, '.', '') : '') ?>">
+        </div>
+        <div>
+          <label>Round off (₹)</label>
+          <input type="number" step="0.01" min="0.01" name="round_off_amount" id="round_off_amount" required value="<?= e($booking ? (string) $booking['total_amount'] : '') ?>">
         </div>
         <div>
           <label>Status</label>
@@ -503,7 +507,8 @@ if ($action === 'add' || $action === 'edit') {
         var plotNoField = document.getElementById('plot_no_field');
         var areaEl = document.getElementById('area_sqft');
         var rateEl = document.getElementById('rate_per_sqft');
-        var totalEl = document.getElementById('total_amount');
+        var totalPreview = document.getElementById('total_amount_preview');
+        var roundOffEl = document.getElementById('round_off_amount');
 
         function money(n) {
           return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -585,7 +590,9 @@ if ($action === 'add' || $action === 'edit') {
           var area = parseFloat(areaEl.value) || 0;
           var rate = parseFloat(rateEl.value) || 0;
           var total = Math.round((area * rate) * 100) / 100;
-          totalEl.value = total > 0 ? total.toFixed(2) : '';
+          var shown = total > 0 ? total.toFixed(2) : '';
+          totalPreview.value = shown;
+          roundOffEl.value = shown;
         }
 
         customerSelect.addEventListener('change', onCustomerChange);
