@@ -29,6 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $totalAmount = ($postedTotal !== '' && is_numeric($postedTotal) && (float) $postedTotal > 0)
             ? round((float) $postedTotal, 2)
             : $calcTotal;
+        $roundOffAmount = max(0, round((float) post('round_off_amount', 0), 2));
+        $remainingAmount = max(0, round((float) post('remaining_amount', 0), 2));
         $status = post('status', 'active');
         if (!in_array($status, ['active', 'completed', 'cancelled'], true)) {
             $status = 'active';
@@ -62,14 +64,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $userId = current_user()['id'] ?? null;
         if ($editId) {
-            $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, bank_account_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, status=?, notes=? WHERE id=?');
-            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $editId]);
+            $stmt = $pdo->prepare('UPDATE bookings SET customer_id=?, company_id=?, project_id=?, bank_account_id=?, property_type=?, plot_no=?, area_sqft=?, rate_per_sqft=?, total_amount=?, round_off_amount=?, remaining_amount=?, status=?, notes=? WHERE id=?');
+            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $roundOffAmount, $remainingAmount, $status, $notes, $editId]);
             audit_log($pdo, 'update', 'booking', $editId, 'Updated booking #' . $editId);
             sync_booking_ledger_project($pdo, $editId, $projectId);
             flash('success', 'Booking updated.');
         } else {
-            $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, bank_account_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
-            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $status, $notes, $userId]);
+            $stmt = $pdo->prepare('INSERT INTO bookings (customer_id, company_id, project_id, bank_account_id, property_type, plot_no, area_sqft, rate_per_sqft, total_amount, round_off_amount, remaining_amount, status, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+            $stmt->execute([$customerId, $companyId, $projectId, $bankAccountId, $propertyType, $plotNo, $areaSqft, $ratePerSqft, $totalAmount, $roundOffAmount, $remainingAmount, $status, $notes, $userId]);
             $newId = (int) $pdo->lastInsertId();
             audit_log($pdo, 'create', 'booking', $newId, 'Created booking for customer #' . $customerId);
 
@@ -231,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $bookingId,
             'Deleted payment #' . $paymentId . ' (' . ($payment['payment_type'] ?? '') . ' ' . money($payment['amount']) . ')'
         );
-        flash('success', 'Payment entry deleted. Round off amount has been updated.');
+        flash('success', 'Payment entry deleted. Update Remaining on Edit booking if needed.');
         redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
@@ -263,6 +265,11 @@ if ($action === 'add' || $action === 'edit') {
             flash('error', 'Booking not found.');
             redirect('pages/bookings.php');
         }
+        $recvStmt = $pdo->prepare("SELECT COALESCE(SUM(CASE WHEN payment_type='received' THEN amount ELSE 0 END),0) FROM booking_payments WHERE booking_id = ?");
+        $recvStmt->execute([$id]);
+        $bookingReceivedTotal = (float) $recvStmt->fetchColumn();
+    } else {
+        $bookingReceivedTotal = 0.0;
     }
     $customers = $pdo->query('SELECT id, name, phone, email, address FROM customers ORDER BY name')->fetchAll();
     $preCustomerId = (int) ($booking['customer_id'] ?? 0);
@@ -283,6 +290,7 @@ if ($action === 'add' || $action === 'edit') {
     $customerBookingsMap = [];
     $custBookingsStmt = $pdo->query(
         "SELECT bk.id, bk.customer_id, bk.property_type, bk.plot_no, bk.total_amount,
+                bk.round_off_amount, bk.remaining_amount,
                 COALESCE(SUM(CASE WHEN bp.payment_type='received' THEN bp.amount ELSE 0 END),0) AS received,
                 COALESCE(SUM(CASE WHEN bp.payment_type='returned' THEN bp.amount ELSE 0 END),0) AS returned
          FROM bookings bk
@@ -294,7 +302,8 @@ if ($action === 'add' || $action === 'edit') {
         $customerBookingsMap[(int) $bk['customer_id']][] = [
             'id' => (int) $bk['id'],
             'label' => $bkLabel,
-            'round_off' => round((float) $bk['total_amount'] - (float) $bk['received'] + (float) $bk['returned'], 2),
+            'round_off' => round((float) ($bk['round_off_amount'] ?? 0), 2),
+            'remaining' => round((float) ($bk['remaining_amount'] ?? 0), 2),
         ];
     }
 
@@ -411,12 +420,24 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <div>
           <label>Amount received (₹)</label>
-          <input type="number" step="0.01" min="0" name="initial_amount_received" value="0">
+          <input type="number" step="0.01" min="0" name="initial_amount_received" id="initial_amount_received" value="0">
         </div>
         <div>
           <label>Amount returned (₹)</label>
           <input type="number" step="0.01" min="0" name="initial_amount_returned" value="0">
         </div>
+        <?php endif; ?>
+        <div>
+          <label>Round off (₹)</label>
+          <input type="number" step="0.01" min="0" name="round_off_amount" id="round_off_amount" value="<?= e($booking ? (string) ($booking['round_off_amount'] ?? '0') : '0') ?>">
+          <div class="muted" style="font-size:0.75rem;margin-top:0.25rem">Auto: total − received (let-go amount, not counted in remaining)</div>
+        </div>
+        <div>
+          <label>Remaining amount (₹)</label>
+          <input type="number" step="0.01" min="0" name="remaining_amount" id="remaining_amount" value="<?= e($booking ? (string) ($booking['remaining_amount'] ?? '0') : '0') ?>">
+          <div class="muted" style="font-size:0.75rem;margin-top:0.25rem">Enter the balance still due</div>
+        </div>
+        <?php if (!$booking): ?>
         <div>
           <label>Date</label>
           <input type="date" name="initial_payment_date" value="<?= e(date('Y-m-d')) ?>">
@@ -504,6 +525,9 @@ if ($action === 'add' || $action === 'edit') {
         var areaEl = document.getElementById('area_sqft');
         var rateEl = document.getElementById('rate_per_sqft');
         var totalEl = document.getElementById('total_amount');
+        var roundOffEl = document.getElementById('round_off_amount');
+        var receivedEl = document.getElementById('initial_amount_received');
+        var editReceived = <?= json_encode($bookingReceivedTotal) ?>;
 
         function money(n) {
           return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -547,7 +571,7 @@ if ($action === 'add' || $action === 'edit') {
               row.style.cssText = 'display:flex;align-items:center;gap:0.6rem;margin-bottom:0.4rem;flex-wrap:wrap';
 
               var span = document.createElement('span');
-              span.textContent = bk.label + ' — Round off: ' + money(bk.round_off);
+              span.textContent = bk.label + ' — Round off: ' + money(bk.round_off) + ' · Remaining: ' + money(bk.remaining);
               row.appendChild(span);
 
               var link = document.createElement('a');
@@ -586,12 +610,22 @@ if ($action === 'add' || $action === 'edit') {
           var rate = parseFloat(rateEl.value) || 0;
           var total = Math.round((area * rate) * 100) / 100;
           totalEl.value = total > 0 ? total.toFixed(2) : '';
+          recalcRoundOff();
+        }
+        function recalcRoundOff() {
+          var total = parseFloat(totalEl.value) || 0;
+          var received = receivedEl ? (parseFloat(receivedEl.value) || 0) : editReceived;
+          var roundOff = Math.round((total - received) * 100) / 100;
+          if (roundOff < 0) roundOff = 0;
+          roundOffEl.value = roundOff.toFixed(2);
         }
 
         customerSelect.addEventListener('change', onCustomerChange);
         propertyTypeEl.addEventListener('change', togglePlotNo);
         areaEl.addEventListener('input', recalcTotal);
         rateEl.addEventListener('input', recalcTotal);
+        totalEl.addEventListener('input', recalcRoundOff);
+        if (receivedEl) receivedEl.addEventListener('input', recalcRoundOff);
 
         showCustomerBookings();
         togglePlotNo();
@@ -751,7 +785,8 @@ $paymentsByBooking = [];
 $totalSaleValue = array_sum(array_map(fn($b) => (float) $b['total_amount'], $bookings));
 $totalReceived = array_sum(array_map(fn($b) => (float) $b['received'], $bookings));
 $totalReturned = array_sum(array_map(fn($b) => (float) $b['returned'], $bookings));
-$totalRemaining = $totalSaleValue - $totalReceived + $totalReturned;
+$totalRoundOff = array_sum(array_map(fn($b) => (float) ($b['round_off_amount'] ?? 0), $bookings));
+$totalRemaining = array_sum(array_map(fn($b) => (float) ($b['remaining_amount'] ?? 0), $bookings));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
     verify_csrf();
@@ -867,7 +902,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             $sale,
             $received,
             $returned,
-            $sale - $received + $returned,
+            (float) ($b['round_off_amount'] ?? 0),
+            (float) ($b['remaining_amount'] ?? 0),
             ucfirst((string) ($b['status'] ?? '')),
         ];
     }
@@ -924,7 +960,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         'summary' => [
             ['Sale value', $totalSaleValue, 'money'],
             ['Received', $totalReceived, 'money'],
-            ['Round off', $totalRemaining, 'money'],
+            ['Round off', $totalRoundOff, 'money'],
+            ['Remaining', $totalRemaining, 'money'],
             ['Bookings', count($bookings), 'int'],
             ['Payment entries', $n, 'int'],
         ],
@@ -933,21 +970,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
                 'title' => 'Bookings',
                 'columns' => [
                     ['label' => 'Sr No', 'type' => 'text', 'width' => '4%', 'xls_width' => 35],
-                    ['label' => 'Customer', 'type' => 'text', 'width' => '12%', 'xls_width' => 130],
-                    ['label' => 'Phone', 'type' => 'text', 'width' => '9%', 'xls_width' => 90],
-                    ['label' => 'Property', 'type' => 'text', 'width' => '8%', 'xls_width' => 80],
-                    ['label' => 'Company', 'type' => 'text', 'width' => '10%', 'xls_width' => 120],
-                    ['label' => 'Project', 'type' => 'text', 'width' => '9%', 'xls_width' => 110],
-                    ['label' => 'Area sqft', 'type' => 'text', 'width' => '7%', 'xls_width' => 70],
-                    ['label' => 'Rate (INR)', 'type' => $rateColType, 'width' => '8%', 'xls_width' => 90],
-                    ['label' => 'Sale value (INR)', 'type' => 'money', 'width' => '9%', 'xls_width' => 110],
-                    ['label' => 'Received (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
-                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
-                    ['label' => 'Round off (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
-                    ['label' => 'Status', 'type' => 'text', 'width' => '7%', 'xls_width' => 70],
+                    ['label' => 'Customer', 'type' => 'text', 'width' => '11%', 'xls_width' => 120],
+                    ['label' => 'Phone', 'type' => 'text', 'width' => '8%', 'xls_width' => 90],
+                    ['label' => 'Property', 'type' => 'text', 'width' => '7%', 'xls_width' => 80],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '9%', 'xls_width' => 110],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Area sqft', 'type' => 'text', 'width' => '6%', 'xls_width' => 70],
+                    ['label' => 'Rate (INR)', 'type' => $rateColType, 'width' => '7%', 'xls_width' => 90],
+                    ['label' => 'Sale value (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
+                    ['label' => 'Received (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
+                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
+                    ['label' => 'Round off (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
+                    ['label' => 'Remaining (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
+                    ['label' => 'Status', 'type' => 'text', 'width' => '6%', 'xls_width' => 70],
                 ],
                 'rows' => $bookingRows,
-                'totals' => ['', 'TOTAL', '', '', '', '', '', '', $totalSaleValue, $totalReceived, $totalReturned, $totalRemaining, ''],
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', $totalSaleValue, $totalReceived, $totalReturned, $totalRoundOff, $totalRemaining, ''],
             ],
             [
                 'title' => 'Payment history',
@@ -966,7 +1004,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             ],
         ],
         'notes' => [
-            'System-generated booking register. Sale/received/round off totals are the full booking history.',
+            'System-generated booking register. Round off is the let-go amount (not due). Remaining is the admin-entered balance due.',
             'Payment history includes every payment for the listed bookings.',
             'Confidential — internal use only.',
         ],
@@ -1016,6 +1054,10 @@ require __DIR__ . '/../includes/header.php';
   </div>
   <div class="stat-card">
     <div class="stat-label">Total round off</div>
+    <div class="stat-value"><?= money($totalRoundOff) ?></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total remaining</div>
     <div class="stat-value <?= $totalRemaining > 0 ? 'text-danger' : 'text-success' ?>"><?= money($totalRemaining) ?></div>
   </div>
 </div>
@@ -1100,6 +1142,7 @@ require __DIR__ . '/../includes/header.php';
             <th class="num">Total</th>
             <th class="num">Received</th>
             <th class="num">Round off</th>
+            <th class="num">Remaining</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -1108,7 +1151,8 @@ require __DIR__ . '/../includes/header.php';
             $received = (float) $b['received'];
             $returned = (float) $b['returned'];
             $total = (float) $b['total_amount'];
-            $roundOff = $total - $received + $returned;
+            $roundOff = (float) ($b['round_off_amount'] ?? 0);
+            $remaining = (float) ($b['remaining_amount'] ?? 0);
             $detailId = 'booking-detail-' . $b['id'];
             $propertyLabel = booking_property_label($b['property_type'] ?? '', $b['plot_no'] ?? '');
             $payments = $paymentsByBooking[(int) $b['id']] ?? [];
@@ -1125,11 +1169,12 @@ require __DIR__ . '/../includes/header.php';
               </td>
               <td class="num"><?= money($total) ?></td>
               <td class="num text-success"><?= money($received) ?></td>
-              <td class="num <?= $roundOff > 0 ? 'text-danger' : 'text-success' ?>"><?= money($roundOff) ?></td>
+              <td class="num"><?= money($roundOff) ?></td>
+              <td class="num <?= $remaining > 0 ? 'text-danger' : 'text-success' ?>"><?= money($remaining) ?></td>
               <td><?= status_chip($b['status']) ?></td>
             </tr>
             <tr class="row-detail" id="<?= e($detailId) ?>" <?= $expandId === (int) $b['id'] ? '' : 'hidden' ?>>
-              <td colspan="7">
+              <td colspan="8">
                 <?php if ($extraTxn && $expandId === (int) $b['id']): ?>
                   <div class="highlight-box" style="border-color:#fde68a;background:#fffbeb;margin-bottom:1rem">
                     <strong>You opened this from an extra Transactions row, not from a payment listed below.</strong>
@@ -1142,6 +1187,8 @@ require __DIR__ . '/../includes/header.php';
                     <tr><td>Email</td><td><?= e($b['customer_email'] ?: '—') ?></td></tr>
                     <tr><td>Address</td><td><?= nl2br(e($b['customer_address'] ?: '—')) ?></td></tr>
                     <tr><td>Area × Rate</td><td><?= e(number_format((float) $b['area_sqft'], 2)) ?> sq ft × <?= money($b['rate_per_sqft']) ?></td></tr>
+                    <tr><td>Round off</td><td><?= money($roundOff) ?> <span class="muted">(let-go, not due)</span></td></tr>
+                    <tr><td>Remaining</td><td><?= money($remaining) ?></td></tr>
                     <tr><td>Notes</td><td><?= nl2br(e($b['notes'] ?: '—')) ?></td></tr>
                   </tbody>
                 </table>
@@ -1217,7 +1264,7 @@ require __DIR__ . '/../includes/header.php';
                   <p class="muted" style="margin-bottom:1rem">No payments recorded yet.</p>
                 <?php endif; ?>
 
-                <form method="post" class="form-grid record-payment-form" style="padding:0" data-remaining="<?= $roundOff ?>">
+                <form method="post" class="form-grid record-payment-form" style="padding:0" data-remaining="<?= $remaining ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="record_payment">
                   <input type="hidden" name="booking_id" value="<?= (int) $b['id'] ?>">
@@ -1254,9 +1301,13 @@ require __DIR__ . '/../includes/header.php';
                     <label>Notes</label>
                     <input type="text" name="notes">
                   </div>
-                  <div class="full" style="font-size:0.85rem;font-weight:700">
-                    Round off after this entry:
-                    <span class="remaining-preview <?= $roundOff > 0 ? 'text-danger' : 'text-success' ?>"><?= money($roundOff) ?></span>
+                  <div class="full" style="font-size:0.85rem">
+                    <div>Round off (let-go): <strong><?= money($roundOff) ?></strong></div>
+                    <div style="margin-top:0.25rem;font-weight:700">
+                      Remaining after this entry:
+                      <span class="remaining-preview <?= $remaining > 0 ? 'text-danger' : 'text-success' ?>"><?= money($remaining) ?></span>
+                      <span class="muted" style="font-weight:500"> (update Remaining on Edit booking if needed)</span>
+                    </div>
                   </div>
                   <div class="full form-actions" style="justify-content:flex-start">
                     <button class="btn btn-primary btn-sm" type="submit">Record payment</button>

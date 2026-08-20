@@ -494,6 +494,12 @@ function ensure_v2_schema(PDO $pdo): void
     if (!in_array('round_off', $bkCols, true)) {
         $pdo->exec('ALTER TABLE bookings ADD COLUMN round_off TINYINT(1) NOT NULL DEFAULT 0 AFTER total_amount');
     }
+    if (!in_array('round_off_amount', $bkCols, true)) {
+        $pdo->exec('ALTER TABLE bookings ADD COLUMN round_off_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER total_amount');
+    }
+    if (!in_array('remaining_amount', $bkCols, true)) {
+        $pdo->exec('ALTER TABLE bookings ADD COLUMN remaining_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER round_off_amount');
+    }
 
   // Query performance indexes (safe to re-check)
     ensure_db_index($pdo, 'transactions', 'idx_txn_bank_account', 'bank_account_id');
