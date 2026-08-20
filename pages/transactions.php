@@ -505,7 +505,7 @@ if ($action === 'add' || $action === 'edit') {
           <input type="date" name="txn_date" required value="<?= e($txn['txn_date'] ?? date('Y-m-d')) ?>">
         </div>
         <div>
-          <label>Bank account (optional)</label>
+          <label style="display:flex;align-items:center;gap:0.5rem">Bank account (optional) <a href="#" id="open_add_bank_txn" style="font-size:0.75rem;font-weight:600;color:var(--primary)">+ Add</a></label>
           <select name="bank_account_id" id="bank_account_id">
             <?= bank_account_options($pdo, $preCompany ?: null, (int) ($txn['bank_account_id'] ?? 0), 'Cash') ?>
           </select>
@@ -547,6 +547,44 @@ if ($action === 'add' || $action === 'edit') {
         </div>
       </form>
     </div>
+
+    <div id="addBankModalTxn" class="sk-modal-overlay" style="display:none">
+      <div class="sk-modal">
+        <button type="button" class="sk-modal-close" id="closeBankModalTxn">&times;</button>
+        <div class="sk-modal-title">Add bank account</div>
+        <div class="form-grid" style="padding:0">
+          <div>
+            <label>Company</label>
+            <select id="modal_txn_bank_company" required><?= company_options($pdo) ?></select>
+          </div>
+          <div>
+            <label>Account name</label>
+            <input type="text" id="modal_txn_bank_acname" required>
+          </div>
+          <div>
+            <label>Bank name</label>
+            <input type="text" id="modal_txn_bank_bname" required>
+          </div>
+          <div>
+            <label>Account number</label>
+            <input type="text" id="modal_txn_bank_acno">
+          </div>
+          <div>
+            <label>IFSC</label>
+            <input type="text" id="modal_txn_bank_ifsc">
+          </div>
+          <div>
+            <label>Opening balance (₹)</label>
+            <input type="number" step="0.01" id="modal_txn_bank_balance" value="0">
+          </div>
+          <div class="full form-actions">
+            <button type="button" class="btn btn-primary" id="saveBankModalTxn">Save account</button>
+          </div>
+          <div class="full" id="modal_txn_bank_error" style="display:none;color:var(--danger,#dc2626);font-size:0.85rem"></div>
+        </div>
+      </div>
+    </div>
+
     <script>
       (function () {
         var CATEGORY_DATA = <?= json_encode($catData) ?>;
@@ -617,6 +655,80 @@ if ($action === 'add' || $action === 'edit') {
         populateCategories(preselectId);
         categoryEl.addEventListener('change', syncOther);
         syncOther();
+
+        // Add bank account modal
+        var modal = document.getElementById('addBankModalTxn');
+        var modalCompany = document.getElementById('modal_txn_bank_company');
+        var modalError = document.getElementById('modal_txn_bank_error');
+        var bankSelect = document.getElementById('bank_account_id');
+        var apiUrl = <?= json_encode(base_url('api/bank-accounts.php')) ?>;
+
+        document.getElementById('open_add_bank_txn').addEventListener('click', function (e) {
+          e.preventDefault();
+          var cid = document.getElementById('company_id').value;
+          if (cid) modalCompany.value = cid;
+          modalError.style.display = 'none';
+          modal.style.display = '';
+        });
+        document.getElementById('closeBankModalTxn').addEventListener('click', function () {
+          modal.style.display = 'none';
+        });
+        modal.addEventListener('click', function (e) {
+          if (e.target === modal) modal.style.display = 'none';
+        });
+
+        document.getElementById('saveBankModalTxn').addEventListener('click', function () {
+          var btn = this;
+          var acName = document.getElementById('modal_txn_bank_acname').value.trim();
+          var bName = document.getElementById('modal_txn_bank_bname').value.trim();
+          var cid = modalCompany.value;
+          if (!acName || !bName || !cid) {
+            modalError.textContent = 'Company, account name and bank name are required.';
+            modalError.style.display = '';
+            return;
+          }
+          btn.disabled = true;
+          btn.textContent = 'Saving…';
+          fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company_id: cid,
+              account_name: acName,
+              bank_name: bName,
+              account_number: document.getElementById('modal_txn_bank_acno').value.trim(),
+              ifsc: document.getElementById('modal_txn_bank_ifsc').value.trim(),
+              opening_balance: document.getElementById('modal_txn_bank_balance').value || 0
+            })
+          })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            btn.disabled = false;
+            btn.textContent = 'Save account';
+            if (data.error) {
+              modalError.textContent = data.error;
+              modalError.style.display = '';
+              return;
+            }
+            var opt = document.createElement('option');
+            opt.value = data.id;
+            opt.textContent = (data.account_name || '') + ' — ' + (data.bank_name || '');
+            bankSelect.appendChild(opt);
+            bankSelect.value = data.id;
+            document.getElementById('modal_txn_bank_acname').value = '';
+            document.getElementById('modal_txn_bank_bname').value = '';
+            document.getElementById('modal_txn_bank_acno').value = '';
+            document.getElementById('modal_txn_bank_ifsc').value = '';
+            document.getElementById('modal_txn_bank_balance').value = '0';
+            modal.style.display = 'none';
+          })
+          .catch(function () {
+            btn.disabled = false;
+            btn.textContent = 'Save account';
+            modalError.textContent = 'Something went wrong. Try again.';
+            modalError.style.display = '';
+          });
+        });
       })();
     </script>
     <?php
