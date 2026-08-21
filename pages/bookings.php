@@ -155,7 +155,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         audit_log($pdo, 'create', 'booking_payment', $bookingId, 'Recorded payment for booking #' . $bookingId . ' — received ' . money($amountReceived) . ', returned ' . money($amountReturned));
+        // Keep remaining in sync with new payments (round off stays as admin set).
+        $curRem = max(0, round((float) ($booking['remaining_amount'] ?? 0) - $amountReceived + $amountReturned, 2));
+        $pdo->prepare('UPDATE bookings SET remaining_amount=? WHERE id=?')->execute([$curRem, $bookingId]);
         flash('success', 'Payment recorded.');
+        redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
+    }
+
+    if ($postAction === 'update_balance') {
+        $bookingId = (int) post('booking_id', 0);
+        $roundOffAmount = max(0, round((float) post('round_off_amount', 0), 2));
+        $remainingAmount = max(0, round((float) post('remaining_amount', 0), 2));
+        $chk = $pdo->prepare('SELECT id FROM bookings WHERE id = ?');
+        $chk->execute([$bookingId]);
+        if (!$chk->fetchColumn()) {
+            flash('error', 'Booking not found.');
+            redirect(list_posted_return_url('bookings.php'));
+        }
+        $pdo->prepare('UPDATE bookings SET round_off_amount=?, remaining_amount=? WHERE id=?')
+            ->execute([$roundOffAmount, $remainingAmount, $bookingId]);
+        audit_log($pdo, 'update', 'booking', $bookingId, 'Updated round off ' . money($roundOffAmount) . ' and remaining ' . money($remainingAmount));
+        flash('success', 'Round off and remaining updated.');
         redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
@@ -199,9 +219,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare('UPDATE booking_payments SET payment_type=?, amount=?, payment_date=?, notes=? WHERE id=?')
             ->execute([$paymentType, $amount, $paymentDate, $notes, $paymentId]);
 
-        audit_log($pdo, 'update', 'booking_payment', (int) $payment['booking_id'], 'Edited payment #' . $paymentId . ' to ' . money($amount) . ' (' . $paymentType . ')');
+        $bookingId = (int) $payment['booking_id'];
+        $oldAmt = (float) ($payment['amount'] ?? 0);
+        $oldType = (string) ($payment['payment_type'] ?? 'received');
+        $remRow = $pdo->prepare('SELECT remaining_amount FROM bookings WHERE id = ?');
+        $remRow->execute([$bookingId]);
+        $curRem = (float) ($remRow->fetchColumn() ?: 0);
+        // Undo old payment effect on remaining, then apply new.
+        $curRem = $oldType === 'received' ? $curRem + $oldAmt : $curRem - $oldAmt;
+        $curRem = $paymentType === 'received' ? $curRem - $amount : $curRem + $amount;
+        $curRem = max(0, round($curRem, 2));
+        $pdo->prepare('UPDATE bookings SET remaining_amount=? WHERE id=?')->execute([$curRem, $bookingId]);
+
+        audit_log($pdo, 'update', 'booking_payment', $bookingId, 'Edited payment #' . $paymentId . ' to ' . money($amount) . ' (' . $paymentType . ')');
         flash('success', 'Payment updated.');
-        redirect(list_posted_return_url('bookings.php', ['expand' => (string) (int) $payment['booking_id'], 'extra' => '']));
+        redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
     if ($postAction === 'delete_payment') {
@@ -226,6 +258,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($txnId) {
             delete_transactions_by_ids($pdo, [$txnId]);
         }
+        $amt = (float) ($payment['amount'] ?? 0);
+        $remRow = $pdo->prepare('SELECT remaining_amount FROM bookings WHERE id = ?');
+        $remRow->execute([$bookingId]);
+        $curRem = (float) ($remRow->fetchColumn() ?: 0);
+        if (($payment['payment_type'] ?? '') === 'received') {
+            $curRem = round($curRem + $amt, 2);
+        } else {
+            $curRem = max(0, round($curRem - $amt, 2));
+        }
+        $pdo->prepare('UPDATE bookings SET remaining_amount=? WHERE id=?')->execute([$curRem, $bookingId]);
         audit_log(
             $pdo,
             'delete',
@@ -233,7 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $bookingId,
             'Deleted payment #' . $paymentId . ' (' . ($payment['payment_type'] ?? '') . ' ' . money($payment['amount']) . ')'
         );
-        flash('success', 'Payment entry deleted. Update Remaining on Edit booking if needed.');
+        flash('success', 'Payment entry deleted. Remaining updated.');
         redirect(list_posted_return_url('bookings.php', ['expand' => (string) $bookingId, 'extra' => '']));
     }
 
@@ -275,14 +317,6 @@ if ($action === 'add' || $action === 'edit') {
         $payTotals = $recvStmt->fetch() ?: ['received' => 0, 'returned' => 0];
         $bookingReceivedTotal = (float) $payTotals['received'];
         $bookingReturnedTotal = (float) $payTotals['returned'];
-        $editBalance = booking_balance_amounts(
-            (float) $booking['total_amount'],
-            $bookingReceivedTotal,
-            $bookingReturnedTotal,
-            (float) ($booking['round_off_amount'] ?? 0)
-        );
-        $booking['round_off_amount'] = $editBalance['round_off'];
-        $booking['remaining_amount'] = $editBalance['remaining'];
     } else {
         $bookingReceivedTotal = 0.0;
         $bookingReturnedTotal = 0.0;
@@ -315,17 +349,11 @@ if ($action === 'add' || $action === 'edit') {
     );
     foreach ($custBookingsStmt->fetchAll() as $bk) {
         $bkLabel = booking_property_label($bk['property_type'] ?? '', $bk['plot_no'] ?? '');
-        $bal = booking_balance_amounts(
-            (float) $bk['total_amount'],
-            (float) $bk['received'],
-            (float) $bk['returned'],
-            (float) ($bk['round_off_amount'] ?? 0)
-        );
         $customerBookingsMap[(int) $bk['customer_id']][] = [
             'id' => (int) $bk['id'],
             'label' => $bkLabel,
-            'round_off' => $bal['round_off'],
-            'remaining' => $bal['remaining'],
+            'round_off' => round((float) ($bk['round_off_amount'] ?? 0), 2),
+            'remaining' => round((float) ($bk['remaining_amount'] ?? 0), 2),
         ];
     }
 
@@ -843,21 +871,8 @@ $paymentsByBooking = [];
 $totalSaleValue = array_sum(array_map(fn($b) => (float) $b['total_amount'], $bookings));
 $totalReceived = array_sum(array_map(fn($b) => (float) $b['received'], $bookings));
 $totalReturned = array_sum(array_map(fn($b) => (float) $b['returned'], $bookings));
-$totalRoundOff = 0.0;
-$totalRemaining = 0.0;
-foreach ($bookings as &$bRow) {
-    $bal = booking_balance_amounts(
-        (float) $bRow['total_amount'],
-        (float) $bRow['received'],
-        (float) $bRow['returned'],
-        (float) ($bRow['round_off_amount'] ?? 0)
-    );
-    $bRow['round_off_amount'] = $bal['round_off'];
-    $bRow['remaining_amount'] = $bal['remaining'];
-    $totalRoundOff += $bal['round_off'];
-    $totalRemaining += $bal['remaining'];
-}
-unset($bRow);
+$totalRoundOff = array_sum(array_map(fn($b) => (float) ($b['round_off_amount'] ?? 0), $bookings));
+$totalRemaining = array_sum(array_map(fn($b) => (float) ($b['remaining_amount'] ?? 0), $bookings));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
     verify_csrf();
@@ -1258,11 +1273,29 @@ require __DIR__ . '/../includes/header.php';
                     <tr><td>Email</td><td><?= e($b['customer_email'] ?: '—') ?></td></tr>
                     <tr><td>Address</td><td><?= nl2br(e($b['customer_address'] ?: '—')) ?></td></tr>
                     <tr><td>Area × Rate</td><td><?= e(number_format((float) $b['area_sqft'], 2)) ?> sq ft × <?= money($b['rate_per_sqft']) ?></td></tr>
-                    <tr><td>Round off</td><td><?= money($roundOff) ?> <span class="muted">(let-go, not due)</span></td></tr>
-                    <tr><td>Remaining</td><td><?= money($remaining) ?></td></tr>
                     <tr><td>Notes</td><td><?= nl2br(e($b['notes'] ?: '—')) ?></td></tr>
                   </tbody>
                 </table>
+
+                <form method="post" class="form-grid" style="padding:0;margin-bottom:1rem;max-width:640px" action="<?= e(base_url(list_return_url('bookings.php', [], ''))) ?>">
+                  <?= csrf_field() ?>
+                  <?= list_return_hidden('bookings.php') ?>
+                  <input type="hidden" name="action" value="update_balance">
+                  <input type="hidden" name="booking_id" value="<?= (int) $b['id'] ?>">
+                  <div>
+                    <label>Round off (₹)</label>
+                    <input type="number" step="0.01" min="0" name="round_off_amount" value="<?= e((string) $roundOff) ?>">
+                    <div class="muted" style="font-size:0.75rem;margin-top:0.2rem">Let-go amount (not counted as due)</div>
+                  </div>
+                  <div>
+                    <label>Remaining amount (₹)</label>
+                    <input type="number" step="0.01" min="0" name="remaining_amount" value="<?= e((string) $remaining) ?>">
+                    <div class="muted" style="font-size:0.75rem;margin-top:0.2rem">Pending balance due</div>
+                  </div>
+                  <div class="full form-actions" style="justify-content:flex-start">
+                    <button class="btn btn-primary btn-sm" type="submit">Save round off &amp; remaining</button>
+                  </div>
+                </form>
 
                 <?php if ($payments): ?>
                   <div class="table-wrap" style="margin-bottom:1rem">
@@ -1377,7 +1410,6 @@ require __DIR__ . '/../includes/header.php';
                     <div style="margin-top:0.25rem;font-weight:700">
                       Remaining after this entry:
                       <span class="remaining-preview <?= $remaining > 0 ? 'text-danger' : 'text-success' ?>"><?= money($remaining) ?></span>
-                      <span class="muted" style="font-weight:500"> (update Remaining on Edit booking if needed)</span>
                     </div>
                   </div>
                   <div class="full form-actions" style="justify-content:flex-start">
