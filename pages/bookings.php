@@ -275,6 +275,14 @@ if ($action === 'add' || $action === 'edit') {
         $payTotals = $recvStmt->fetch() ?: ['received' => 0, 'returned' => 0];
         $bookingReceivedTotal = (float) $payTotals['received'];
         $bookingReturnedTotal = (float) $payTotals['returned'];
+        $editBalance = booking_balance_amounts(
+            (float) $booking['total_amount'],
+            $bookingReceivedTotal,
+            $bookingReturnedTotal,
+            (float) ($booking['round_off_amount'] ?? 0)
+        );
+        $booking['round_off_amount'] = $editBalance['round_off'];
+        $booking['remaining_amount'] = $editBalance['remaining'];
     } else {
         $bookingReceivedTotal = 0.0;
         $bookingReturnedTotal = 0.0;
@@ -307,11 +315,17 @@ if ($action === 'add' || $action === 'edit') {
     );
     foreach ($custBookingsStmt->fetchAll() as $bk) {
         $bkLabel = booking_property_label($bk['property_type'] ?? '', $bk['plot_no'] ?? '');
+        $bal = booking_balance_amounts(
+            (float) $bk['total_amount'],
+            (float) $bk['received'],
+            (float) $bk['returned'],
+            (float) ($bk['round_off_amount'] ?? 0)
+        );
         $customerBookingsMap[(int) $bk['customer_id']][] = [
             'id' => (int) $bk['id'],
             'label' => $bkLabel,
-            'round_off' => round((float) ($bk['round_off_amount'] ?? 0), 2),
-            'remaining' => round((float) ($bk['remaining_amount'] ?? 0), 2),
+            'round_off' => $bal['round_off'],
+            'remaining' => $bal['remaining'],
         ];
     }
 
@@ -829,8 +843,21 @@ $paymentsByBooking = [];
 $totalSaleValue = array_sum(array_map(fn($b) => (float) $b['total_amount'], $bookings));
 $totalReceived = array_sum(array_map(fn($b) => (float) $b['received'], $bookings));
 $totalReturned = array_sum(array_map(fn($b) => (float) $b['returned'], $bookings));
-$totalRoundOff = array_sum(array_map(fn($b) => (float) ($b['round_off_amount'] ?? 0), $bookings));
-$totalRemaining = array_sum(array_map(fn($b) => (float) ($b['remaining_amount'] ?? 0), $bookings));
+$totalRoundOff = 0.0;
+$totalRemaining = 0.0;
+foreach ($bookings as &$bRow) {
+    $bal = booking_balance_amounts(
+        (float) $bRow['total_amount'],
+        (float) $bRow['received'],
+        (float) $bRow['returned'],
+        (float) ($bRow['round_off_amount'] ?? 0)
+    );
+    $bRow['round_off_amount'] = $bal['round_off'];
+    $bRow['remaining_amount'] = $bal['remaining'];
+    $totalRoundOff += $bal['round_off'];
+    $totalRemaining += $bal['remaining'];
+}
+unset($bRow);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''), ['csv', 'excel', 'pdf'], true)) {
     verify_csrf();

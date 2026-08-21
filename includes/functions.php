@@ -691,6 +691,78 @@ function booking_property_label(?string $propertyType, ?string $plotNo = ''): st
     return ucwords(str_replace('_', ' ', $type));
 }
 
+/**
+ * Live round-off / remaining from sale total and payments.
+ * Round off is only a let-go waiver; remaining is pending due.
+ * Also repairs old bad rows where the full unpaid was stored as round_off.
+ *
+ * @return array{round_off: float, remaining: float, unpaid: float}
+ */
+function booking_balance_amounts(float $total, float $received, float $returned = 0, float $roundOffStored = 0): array
+{
+    $unpaid = round($total - $received + $returned, 2);
+    if ($unpaid < 0) {
+        $unpaid = 0.0;
+    }
+    $roff = round($roundOffStored, 2);
+    if ($roff < 0) {
+        $roff = 0.0;
+    }
+
+    // Old bug: unpaid balance was saved into round_off (often much larger than true unpaid).
+    if ($roff > $unpaid + 0.05) {
+        if ($unpaid > 0 && $unpaid <= 5000) {
+            // Near-paid booking: treat small unpaid as let-go round off.
+            $roff = $unpaid;
+            $rem = 0.0;
+        } else {
+            $roff = 0.0;
+            $rem = $unpaid;
+        }
+    } else {
+        $rem = round($unpaid - $roff, 2);
+        if ($rem < 0) {
+            $rem = 0.0;
+        }
+    }
+
+    return [
+        'round_off' => $roff,
+        'remaining' => $rem,
+        'unpaid' => $unpaid,
+    ];
+}
+
+/** Recalculate and persist round_off_amount / remaining_amount for every booking. */
+function booking_recalc_all_balances(PDO $pdo): void
+{
+    try {
+        $cols = array_column($pdo->query('SHOW COLUMNS FROM bookings')->fetchAll(), 'Field');
+        if (!in_array('round_off_amount', $cols, true) || !in_array('remaining_amount', $cols, true)) {
+            return;
+        }
+        $rows = $pdo->query(
+            "SELECT b.id, b.total_amount, b.round_off_amount, b.remaining_amount,
+                    COALESCE(SUM(CASE WHEN bp.payment_type='received' THEN bp.amount ELSE 0 END),0) AS received,
+                    COALESCE(SUM(CASE WHEN bp.payment_type='returned' THEN bp.amount ELSE 0 END),0) AS returned
+             FROM bookings b
+             LEFT JOIN booking_payments bp ON bp.booking_id = b.id
+             GROUP BY b.id"
+        )->fetchAll();
+        $upd = $pdo->prepare('UPDATE bookings SET round_off_amount=?, remaining_amount=? WHERE id=?');
+        foreach ($rows as $r) {
+            $bal = booking_balance_amounts(
+                (float) $r['total_amount'],
+                (float) $r['received'],
+                (float) $r['returned'],
+                (float) $r['round_off_amount']
+            );
+            $upd->execute([$bal['round_off'], $bal['remaining'], (int) $r['id']]);
+        }
+    } catch (Throwable $e) {
+    }
+}
+
 function booking_manage_href(array $match, int $txnId = 0): string
 {
     $id = (int) ($match['booking_id'] ?? 0);

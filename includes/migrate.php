@@ -501,6 +501,9 @@ function ensure_v2_schema(PDO $pdo): void
         $pdo->exec('ALTER TABLE bookings ADD COLUMN remaining_amount DECIMAL(14,2) NOT NULL DEFAULT 0 AFTER round_off_amount');
     }
 
+    // v14: recalculate round_off / remaining from total and payments (fixes bad stored values)
+    booking_recalc_all_balances($pdo);
+
   // Query performance indexes (safe to re-check)
     ensure_db_index($pdo, 'transactions', 'idx_txn_bank_account', 'bank_account_id');
     ensure_db_index($pdo, 'transactions', 'idx_txn_company_date', 'company_id, txn_date');
