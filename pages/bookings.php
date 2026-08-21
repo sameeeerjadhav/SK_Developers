@@ -109,7 +109,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             flash('success', 'Booking created.' . (($initialAmount > 0 || $initialReturned > 0) ? ' Initial payment recorded.' : ' Record payments from the list below.'));
         }
-        redirect('pages/bookings.php');
+        $returnId = $editId ?: ($newId ?? 0);
+        redirect('pages/bookings.php' . ($returnId ? ('?expand=' . $returnId) : '') . '#list');
     }
 
     if ($postAction === 'record_payment') {
