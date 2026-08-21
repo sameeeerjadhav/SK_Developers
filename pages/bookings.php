@@ -432,7 +432,7 @@ if ($action === 'add' || $action === 'edit') {
         </div>
         <div>
           <label>Amount returned (₹)</label>
-          <input type="number" step="0.01" min="0" name="initial_amount_returned" value="0">
+          <input type="number" step="0.01" min="0" name="initial_amount_returned" id="initial_amount_returned" value="0">
         </div>
         <?php endif; ?>
         <div>
