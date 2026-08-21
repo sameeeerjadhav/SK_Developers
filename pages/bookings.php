@@ -265,11 +265,19 @@ if ($action === 'add' || $action === 'edit') {
             flash('error', 'Booking not found.');
             redirect('pages/bookings.php');
         }
-        $recvStmt = $pdo->prepare("SELECT COALESCE(SUM(CASE WHEN payment_type='received' THEN amount ELSE 0 END),0) FROM booking_payments WHERE booking_id = ?");
+        $recvStmt = $pdo->prepare(
+            "SELECT
+                COALESCE(SUM(CASE WHEN payment_type='received' THEN amount ELSE 0 END),0) AS received,
+                COALESCE(SUM(CASE WHEN payment_type='returned' THEN amount ELSE 0 END),0) AS returned
+             FROM booking_payments WHERE booking_id = ?"
+        );
         $recvStmt->execute([$id]);
-        $bookingReceivedTotal = (float) $recvStmt->fetchColumn();
+        $payTotals = $recvStmt->fetch() ?: ['received' => 0, 'returned' => 0];
+        $bookingReceivedTotal = (float) $payTotals['received'];
+        $bookingReturnedTotal = (float) $payTotals['returned'];
     } else {
         $bookingReceivedTotal = 0.0;
+        $bookingReturnedTotal = 0.0;
     }
     $customers = $pdo->query('SELECT id, name, phone, email, address FROM customers ORDER BY name')->fetchAll();
     $preCustomerId = (int) ($booking['customer_id'] ?? 0);
@@ -430,12 +438,12 @@ if ($action === 'add' || $action === 'edit') {
         <div>
           <label>Round off (₹)</label>
           <input type="number" step="0.01" min="0" name="round_off_amount" id="round_off_amount" value="<?= e($booking ? (string) ($booking['round_off_amount'] ?? '0') : '0') ?>">
-          <div class="muted" style="font-size:0.75rem;margin-top:0.25rem">Auto: total − received (let-go amount, not counted in remaining)</div>
+          <div class="muted" style="font-size:0.75rem;margin-top:0.25rem">Let-go amount (small difference waived — not counted as due)</div>
         </div>
         <div>
           <label>Remaining amount (₹)</label>
           <input type="number" step="0.01" min="0" name="remaining_amount" id="remaining_amount" value="<?= e($booking ? (string) ($booking['remaining_amount'] ?? '0') : '0') ?>">
-          <div class="muted" style="font-size:0.75rem;margin-top:0.25rem">Enter the balance still due</div>
+          <div class="muted" style="font-size:0.75rem;margin-top:0.25rem">Pending: total − received − round off (editable)</div>
         </div>
         <?php if (!$booking): ?>
         <div>
@@ -526,8 +534,12 @@ if ($action === 'add' || $action === 'edit') {
         var rateEl = document.getElementById('rate_per_sqft');
         var totalEl = document.getElementById('total_amount');
         var roundOffEl = document.getElementById('round_off_amount');
+        var remainingEl = document.getElementById('remaining_amount');
         var receivedEl = document.getElementById('initial_amount_received');
+        var returnedEl = document.getElementById('initial_amount_returned');
         var editReceived = <?= json_encode($bookingReceivedTotal) ?>;
+        var editReturned = <?= json_encode($bookingReturnedTotal) ?>;
+        var remainingTouched = false;
 
         function money(n) {
           return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -610,22 +622,54 @@ if ($action === 'add' || $action === 'edit') {
           var rate = parseFloat(rateEl.value) || 0;
           var total = Math.round((area * rate) * 100) / 100;
           totalEl.value = total > 0 ? total.toFixed(2) : '';
-          recalcRoundOff();
+          remainingTouched = false;
+          recalcRemaining();
         }
-        function recalcRoundOff() {
+        function currentReceived() {
+          return receivedEl ? (parseFloat(receivedEl.value) || 0) : editReceived;
+        }
+        function currentReturned() {
+          return returnedEl ? (parseFloat(returnedEl.value) || 0) : editReturned;
+        }
+        function recalcRemaining() {
+          if (remainingTouched) return;
           var total = parseFloat(totalEl.value) || 0;
-          var received = receivedEl ? (parseFloat(receivedEl.value) || 0) : editReceived;
-          var roundOff = Math.round((total - received) * 100) / 100;
-          if (roundOff < 0) roundOff = 0;
-          roundOffEl.value = roundOff.toFixed(2);
+          var received = currentReceived();
+          var returned = currentReturned();
+          var roundOff = parseFloat(roundOffEl.value) || 0;
+          var remaining = Math.round((total - received + returned - roundOff) * 100) / 100;
+          if (remaining < 0) remaining = 0;
+          remainingEl.value = remaining.toFixed(2);
         }
 
         customerSelect.addEventListener('change', onCustomerChange);
         propertyTypeEl.addEventListener('change', togglePlotNo);
         areaEl.addEventListener('input', recalcTotal);
         rateEl.addEventListener('input', recalcTotal);
-        totalEl.addEventListener('input', recalcRoundOff);
-        if (receivedEl) receivedEl.addEventListener('input', recalcRoundOff);
+        totalEl.addEventListener('input', function () { remainingTouched = false; recalcRemaining(); });
+        roundOffEl.addEventListener('input', function () { remainingTouched = false; recalcRemaining(); });
+        remainingEl.addEventListener('input', function () { remainingTouched = true; });
+        if (receivedEl) receivedEl.addEventListener('input', function () { remainingTouched = false; recalcRemaining(); });
+        if (returnedEl) returnedEl.addEventListener('input', function () { remainingTouched = false; recalcRemaining(); });
+        // Show correct pending on load (edit + add).
+        // Old bad data put the full unpaid into round off; move it to remaining.
+        (function fixPendingOnLoad() {
+          var total = parseFloat(totalEl.value) || 0;
+          var received = currentReceived();
+          var returned = currentReturned();
+          var unpaid = Math.round((total - received + returned) * 100) / 100;
+          if (unpaid < 0) unpaid = 0;
+          var roundOff = parseFloat(roundOffEl.value) || 0;
+          var remaining = parseFloat(remainingEl.value) || 0;
+          if (remaining <= 0 && roundOff > 0 && Math.abs(roundOff - unpaid) < 0.05) {
+            roundOffEl.value = '0.00';
+            remainingEl.value = unpaid.toFixed(2);
+            remainingTouched = true;
+            return;
+          }
+          remainingTouched = false;
+          recalcRemaining();
+        })();
 
         showCustomerBookings();
         togglePlotNo();
