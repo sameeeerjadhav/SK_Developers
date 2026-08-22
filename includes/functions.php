@@ -763,6 +763,34 @@ function booking_recalc_all_balances(PDO $pdo): void
     }
 }
 
+/** @return array<int, array{cash: float, bank: float}> */
+function booking_received_cash_bank_map(PDO $pdo, array $bookingIds): array
+{
+    $bookingIds = array_values(array_filter(array_map('intval', $bookingIds), fn($id) => $id > 0));
+    if ($bookingIds === []) {
+        return [];
+    }
+    $ph = implode(',', array_fill(0, count($bookingIds), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT bp.booking_id,
+                COALESCE(SUM(CASE WHEN bp.payment_type='received' AND t.bank_account_id IS NULL THEN bp.amount ELSE 0 END),0) AS received_cash,
+                COALESCE(SUM(CASE WHEN bp.payment_type='received' AND t.bank_account_id IS NOT NULL THEN bp.amount ELSE 0 END),0) AS received_bank
+         FROM booking_payments bp
+         LEFT JOIN transactions t ON t.id = bp.transaction_id
+         WHERE bp.booking_id IN ($ph)
+         GROUP BY bp.booking_id"
+    );
+    $stmt->execute($bookingIds);
+    $map = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $map[(int) $row['booking_id']] = [
+            'cash' => round((float) $row['received_cash'], 2),
+            'bank' => round((float) $row['received_bank'], 2),
+        ];
+    }
+    return $map;
+}
+
 function booking_manage_href(array $match, int $txnId = 0): string
 {
     $id = (int) ($match['booking_id'] ?? 0);

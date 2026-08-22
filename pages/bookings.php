@@ -973,10 +973,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
     }
 
     $bookingRows = [];
+    $receivedByMode = booking_received_cash_bank_map($pdo, array_map(fn($b) => (int) $b['id'], $bookings));
+    $totalReceivedCash = 0.0;
+    $totalReceivedBank = 0.0;
     foreach ($bookings as $i => $b) {
-        $received = (float) $b['received'];
+        $bid = (int) $b['id'];
         $returned = (float) $b['returned'];
         $sale = (float) $b['total_amount'];
+        $recvCash = $receivedByMode[$bid]['cash'] ?? 0.0;
+        $recvBank = $receivedByMode[$bid]['bank'] ?? 0.0;
+        $totalReceivedCash += $recvCash;
+        $totalReceivedBank += $recvBank;
         $bookingRows[] = [
             (string) ($i + 1),
             $b['customer_name'] ?? '',
@@ -987,7 +994,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
             $b['area_sqft'] !== null ? (string) $b['area_sqft'] : '',
             $b['rate_per_sqft'] !== null ? (float) $b['rate_per_sqft'] : null,
             $sale,
-            $received,
+            $recvCash,
+            $recvBank,
             $returned,
             (float) ($b['round_off_amount'] ?? 0),
             (float) ($b['remaining_amount'] ?? 0),
@@ -1046,7 +1054,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
         ],
         'summary' => [
             ['Sale value', $totalSaleValue, 'money'],
-            ['Received', $totalReceived, 'money'],
+            ['Received (cash)', $totalReceivedCash, 'money'],
+            ['Received (bank)', $totalReceivedBank, 'money'],
+            ['Received (total)', $totalReceived, 'money'],
             ['Round off', $totalRoundOff, 'money'],
             ['Remaining', $totalRemaining, 'money'],
             ['Bookings', count($bookings), 'int'],
@@ -1057,22 +1067,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array(post('export_action', ''),
                 'title' => 'Bookings',
                 'columns' => [
                     ['label' => 'Sr No', 'type' => 'text', 'width' => '4%', 'xls_width' => 35],
-                    ['label' => 'Customer', 'type' => 'text', 'width' => '11%', 'xls_width' => 120],
-                    ['label' => 'Phone', 'type' => 'text', 'width' => '8%', 'xls_width' => 90],
-                    ['label' => 'Property', 'type' => 'text', 'width' => '7%', 'xls_width' => 80],
-                    ['label' => 'Company', 'type' => 'text', 'width' => '9%', 'xls_width' => 110],
-                    ['label' => 'Project', 'type' => 'text', 'width' => '8%', 'xls_width' => 100],
-                    ['label' => 'Area sqft', 'type' => 'text', 'width' => '6%', 'xls_width' => 70],
-                    ['label' => 'Rate (INR)', 'type' => $rateColType, 'width' => '7%', 'xls_width' => 90],
-                    ['label' => 'Sale value (INR)', 'type' => 'money', 'width' => '8%', 'xls_width' => 100],
-                    ['label' => 'Received (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
-                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
-                    ['label' => 'Round off (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
-                    ['label' => 'Remaining (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 90],
-                    ['label' => 'Status', 'type' => 'text', 'width' => '6%', 'xls_width' => 70],
+                    ['label' => 'Customer', 'type' => 'text', 'width' => '10%', 'xls_width' => 120],
+                    ['label' => 'Phone', 'type' => 'text', 'width' => '7%', 'xls_width' => 90],
+                    ['label' => 'Property', 'type' => 'text', 'width' => '6%', 'xls_width' => 80],
+                    ['label' => 'Company', 'type' => 'text', 'width' => '8%', 'xls_width' => 110],
+                    ['label' => 'Project', 'type' => 'text', 'width' => '7%', 'xls_width' => 100],
+                    ['label' => 'Area sqft', 'type' => 'text', 'width' => '5%', 'xls_width' => 70],
+                    ['label' => 'Rate (INR)', 'type' => $rateColType, 'width' => '6%', 'xls_width' => 90],
+                    ['label' => 'Sale value (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 100],
+                    ['label' => 'Received cash (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 100],
+                    ['label' => 'Received bank (INR)', 'type' => 'money', 'width' => '7%', 'xls_width' => 100],
+                    ['label' => 'Returned (INR)', 'type' => 'money', 'width' => '6%', 'xls_width' => 90],
+                    ['label' => 'Round off (INR)', 'type' => 'money', 'width' => '6%', 'xls_width' => 90],
+                    ['label' => 'Remaining (INR)', 'type' => 'money', 'width' => '6%', 'xls_width' => 90],
+                    ['label' => 'Status', 'type' => 'text', 'width' => '5%', 'xls_width' => 70],
                 ],
                 'rows' => $bookingRows,
-                'totals' => ['', 'TOTAL', '', '', '', '', '', '', $totalSaleValue, $totalReceived, $totalReturned, $totalRoundOff, $totalRemaining, ''],
+                'totals' => ['', 'TOTAL', '', '', '', '', '', '', $totalSaleValue, $totalReceivedCash, $totalReceivedBank, $totalReturned, $totalRoundOff, $totalRemaining, ''],
             ],
             [
                 'title' => 'Payment history',
