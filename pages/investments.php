@@ -591,6 +591,19 @@ if ($action === 'add' || $action === 'edit') {
     $pageActions = '<a class="btn btn-outline" href="' . e(base_url('pages/investments.php')) . '">Back</a>';
     require __DIR__ . '/../includes/header.php';
     ?>
+    <?php if ($mode !== 'invest'): ?>
+    <?php /* Full page width, outside the narrow form card; filled in by the script below once an investor is picked. */ ?>
+    <div id="investor_balance" style="margin-bottom:1rem">
+      <p class="muted" id="balance_empty" style="margin:0 0 0.35rem;font-size:0.85rem">Select an investor below to see their balance.</p>
+      <div id="balance_grid" class="stat-grid" style="margin:0;display:none">
+        <div class="stat-card"><div class="stat-label">Invested</div><div class="stat-value text-success" id="bal_invested">—</div></div>
+        <div class="stat-card"><div class="stat-label">Paid back</div><div class="stat-value text-danger" id="bal_paid">—</div></div>
+        <div class="stat-card"><div class="stat-label">Outstanding principal</div><div class="stat-value" id="bal_outstanding">—</div></div>
+        <div class="stat-card"><div class="stat-label">Interest paid</div><div class="stat-value" id="bal_interest">—</div></div>
+      </div>
+      <p class="muted" id="bal_split" style="font-size:0.78rem;margin:0.5rem 0 0;display:none"></p>
+    </div>
+    <?php endif; ?>
     <div class="card" style="max-width:820px">
       <form method="post" class="form-grid">
         <?= csrf_field() ?>
@@ -655,17 +668,6 @@ if ($action === 'add' || $action === 'edit') {
           <p class="muted" id="investor_fields_hint" style="font-size:0.78rem;margin:0.5rem 0 0;display:<?= $preInvestorId ? '' : 'none' ?>">
             Editing these updates the selected investor's saved record.
           </p>
-        </div>
-        <?php else: ?>
-        <div class="full" id="investor_balance">
-          <p class="muted" id="balance_empty" style="margin:0;font-size:0.85rem">Select an investor to see their balance.</p>
-          <div id="balance_grid" class="stat-grid" style="grid-template-columns:repeat(2,1fr);margin:0;display:none">
-            <div class="stat-card"><div class="stat-label">Invested</div><div class="stat-value text-success" id="bal_invested">—</div></div>
-            <div class="stat-card"><div class="stat-label">Paid back</div><div class="stat-value text-danger" id="bal_paid">—</div></div>
-            <div class="stat-card"><div class="stat-label">Outstanding principal</div><div class="stat-value" id="bal_outstanding">—</div></div>
-            <div class="stat-card"><div class="stat-label">Interest paid</div><div class="stat-value" id="bal_interest">—</div></div>
-          </div>
-          <p class="muted" id="bal_split" style="font-size:0.78rem;margin:0.5rem 0 0;display:none"></p>
         </div>
         <?php endif; ?>
 
