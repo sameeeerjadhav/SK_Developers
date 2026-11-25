@@ -583,6 +583,7 @@ if ($month !== '' || $year !== '') {
 }
 
 $filterInvestor = (int) get('investor_id', 0);
+$q = trim(get('q', ''));
 
 $pageTitle = 'Investment';
 $pageSub = 'Fixed, long-term capital and regular (daily/monthly) investment movement — by investor and company.';
@@ -607,6 +608,12 @@ if ($filterCompany) {
 if ($filterInvestor) {
     $sql .= ' AND t.investor_id = ?';
     $params[] = $filterInvestor;
+}
+if ($q !== '') {
+    $sql .= ' AND (inv.name LIKE ? OR inv.phone LIKE ? OR c.name LIKE ? OR p.name LIKE ? OR cat.name LIKE ?
+                OR ba.account_name LIKE ? OR ba.bank_name LIKE ? OR t.reference_no LIKE ? OR t.description LIKE ?)';
+    $like = '%' . $q . '%';
+    array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
 }
 apply_date_range($sql, $params, $filterFrom !== '' ? $filterFrom : null, $filterTo !== '' ? $filterTo : null);
 $sql .= ' ORDER BY t.txn_date DESC, t.id DESC';
@@ -725,6 +732,10 @@ require __DIR__ . '/../includes/header.php';
   <?= list_limit_hidden() ?>
   <?= period_filter_fields($month, $year) ?>
   <div class="field">
+    <label>Search</label>
+    <input type="search" name="q" value="<?= e($q) ?>" placeholder="Investor, company, ref, description…">
+  </div>
+  <div class="field">
     <label>Company</label>
     <select name="company_id" onchange="this.form.submit()">
       <option value="">All</option>
@@ -764,10 +775,10 @@ require __DIR__ . '/../includes/header.php';
 
 <?php if (!$rows): ?>
   <div class="card">
-    <div class="empty"><strong>No investments yet</strong><p>Add an investment (credit) or a withdrawal (debit) entry.</p></div>
+    <div class="empty"><strong><?= $q !== '' ? 'No matches' : 'No investments yet' ?></strong><p><?= $q !== '' ? 'No entries match “' . e($q) . '” with the current filters.' : 'Add an investment (credit) or a withdrawal (debit) entry.' ?></p></div>
   </div>
 <?php else: ?>
-  <form id="investmentsExportForm" class="bulk-export-form" method="post" action="<?= e(base_url('pages/investments.php' . ($filterCompany || $filterFrom || $filterTo ? '?' . http_build_query(['company_id' => $filterCompany ?: null, 'from' => $filterFrom ?: null, 'to' => $filterTo ?: null]) : ''))) ?>">
+  <form id="investmentsExportForm" class="bulk-export-form" method="post" action="<?= e(base_url('pages/investments.php' . ($filterCompany || $filterFrom || $filterTo || $q !== '' ? '?' . http_build_query(['company_id' => $filterCompany ?: null, 'from' => $filterFrom ?: null, 'to' => $filterTo ?: null, 'q' => $q ?: null]) : ''))) ?>">
     <?= csrf_field() ?>
     <div class="export-toolbar no-print">
       <label class="select-all-label">
