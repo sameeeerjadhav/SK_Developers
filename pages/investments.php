@@ -730,11 +730,14 @@ require __DIR__ . '/../includes/header.php';
 </div>
 <form class="filters" method="get">
   <?= list_limit_hidden() ?>
-  <?= period_filter_fields($month, $year) ?>
-  <div class="field">
-    <label>Search</label>
-    <input type="search" name="q" value="<?= e($q) ?>" placeholder="Investor, company, ref, description…">
+  <div class="field list-search">
+    <label for="investments-q">Search investments</label>
+    <div class="list-search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="investments-q" type="search" name="q" value="<?= e($q) ?>" placeholder="Search by investor, phone, company, project, bank, reference or description…" autocomplete="off">
+    </div>
   </div>
+  <?= period_filter_fields($month, $year) ?>
   <div class="field">
     <label>Company</label>
     <select name="company_id" onchange="this.form.submit()">
