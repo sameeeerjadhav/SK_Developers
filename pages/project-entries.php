@@ -70,7 +70,7 @@ require __DIR__ . '/../includes/header.php';
                 $bookingMatch = booking_match_for_transaction($pdo, $row);
                 $bookingId = (int) $bookingMatch['booking_id'];
                 $mgmtPage = [booking_manage_href($bookingMatch, (int) $row['id']), 'Bookings'];
-            } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit'], true)) {
+            } elseif (in_array($row['category_slug'], ['investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit', 'investment_interest_paid'], true)) {
                 $mgmtPage = ['investments.php', 'Investments'];
             }
             $account = $row['account_name']

@@ -243,6 +243,13 @@ function ensure_v2_schema(PDO $pdo): void
         }
     }
 
+    // Ensure Investment Interest Paid exists — interest paid out to investors (debit, kept apart from principal)
+    $chkInterest = $pdo->prepare("SELECT id FROM categories WHERE section='general' AND slug='investment_interest_paid' LIMIT 1");
+    $chkInterest->execute();
+    if (!$chkInterest->fetchColumn()) {
+        $pdo->exec("INSERT INTO categories (section, name, slug, sort_order) VALUES ('general', 'Investment Interest Paid', 'investment_interest_paid', 56)");
+    }
+
     try {
         $pdo->query('SELECT 1 FROM booking_details LIMIT 1');
     } catch (Throwable $e) {

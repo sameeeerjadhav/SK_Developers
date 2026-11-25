@@ -500,6 +500,9 @@ table.data th.select-col, table.data td.select-col { width: 2.2rem; text-align: 
 .investment-section-regular { border-top-color: #d97706; }
 .investment-section-regular .investment-section-icon { background: #fef3c7; color: #b45309; }
 .investment-section-regular .investment-section-badge { background: #fef3c7; color: #b45309; }
+.investment-section-interest { border-top-color: #2563eb; }
+.investment-section-interest .investment-section-icon { background: #dbeafe; color: #1d4ed8; }
+.investment-section-interest .investment-section-badge { background: #dbeafe; color: #1d4ed8; }
 
 .chip {
   display: inline-flex; align-items: center;

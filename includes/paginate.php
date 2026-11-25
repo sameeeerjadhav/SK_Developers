@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 const LIST_PAGE_LIMITS = [25, 50, 75, 100];
-const LIST_PAGE_PARAMS = ['page', 'credit_page', 'debit_page', 'fixed_page', 'regular_page'];
+const LIST_PAGE_PARAMS = ['page', 'credit_page', 'debit_page', 'fixed_page', 'regular_page', 'interest_page'];
 
 function list_page_limit(): int
 {
