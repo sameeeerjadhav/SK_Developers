@@ -264,6 +264,8 @@ require __DIR__ . '/../includes/header.php';
   (function () {
     var CATS = <?= json_encode($catByType, JSON_UNESCAPED_UNICODE) ?>;
     var modal = document.getElementById('addCategoryModal');
+    // .content's fill-mode transform animation would otherwise become the containing block for this fixed overlay.
+    document.body.appendChild(modal);
     var nameEl = document.getElementById('cat_name');
     var sectionEl = document.getElementById('cat_section');
     var existingEl = document.getElementById('cat_existing');
