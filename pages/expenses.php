@@ -3,6 +3,25 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/bootstrap.php';
 require_login();
 
+// "Add category": create an Expense / Land Purchase category. On a validation error we fall through and
+// re-render the page with the modal open and the typed values kept; on success it's post-redirect-get.
+$catError = null;
+$catForm = ['name' => '', 'section' => 'expense'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action', '') === 'add_category') {
+    verify_csrf();
+    $catForm = ['name' => (string) post('category_name', ''), 'section' => (string) post('category_section', 'expense')];
+    $created = create_category($pdo, $catForm['section'], $catForm['name']);
+    if ($created['ok']) {
+        $sectionLabel = $created['section'] === 'land_purchase' ? 'Land Purchase' : 'Expense';
+        audit_log($pdo, 'create', 'category', $created['id'], 'Added ' . $sectionLabel . ' category "' . $created['name'] . '"', null, [
+            'name' => $created['name'], 'section' => $created['section'],
+        ]);
+        flash('success', 'Category “' . $created['name'] . '” added under ' . $sectionLabel . '. It is now in the Add expense dropdown.');
+        redirect(list_return_url('expenses.php', [], ''));
+    }
+    $catError = (string) $created['error'];
+}
+
 $filterCompany = (int) get('company_id', 0);
 $filterProject = (int) get('project_id', 0);
 
@@ -135,7 +154,14 @@ $list = paginate_list($rows);
 $pageTitle = 'Expenses';
 $pageSub = 'Office, material, salary, labour, interest and land-purchase related spends.';
 $pageActions = report_export_buttons()
+    . '<button type="button" class="btn btn-outline" id="openCategoryModal">Add category</button>'
     . '<a class="btn btn-primary" href="' . e(base_url('pages/transactions.php?action=add&section=expense&slug=office_expenses')) . '">+ Add expense</a>';
+
+// Existing categories per type, shown in the modal so duplicates are obvious before saving.
+$catByType = ['expense' => [], 'land_purchase' => []];
+foreach ($pdo->query("SELECT name, section FROM categories WHERE section IN ('expense','land_purchase') ORDER BY sort_order, name") as $c) {
+    $catByType[$c['section']][] = $c['name'];
+}
 
 require __DIR__ . '/../includes/header.php';
 ?>
@@ -202,4 +228,81 @@ require __DIR__ . '/../includes/header.php';
     <?php render_pager('expenses.php', $list); ?>
   <?php endif; ?>
 </div>
+
+<div id="addCategoryModal" class="sk-modal-overlay" <?= $catError ? '' : 'style="display:none"' ?>>
+  <div class="sk-modal" role="dialog" aria-modal="true" aria-labelledby="addCategoryTitle">
+    <button type="button" class="sk-modal-close" id="closeCategoryModal" aria-label="Close">&times;</button>
+    <div class="sk-modal-title" id="addCategoryTitle">Add category</div>
+    <form method="post" class="form-grid" autocomplete="off">
+      <?= csrf_field() ?>
+      <input type="hidden" name="action" value="add_category">
+      <div class="full">
+        <label for="cat_name">Category name</label>
+        <input type="text" id="cat_name" name="category_name" maxlength="120" required value="<?= e($catForm['name']) ?>" placeholder="e.g. Site survey, Fuel, Legal fees">
+      </div>
+      <div class="full">
+        <label for="cat_section">Type</label>
+        <select id="cat_section" name="category_section">
+          <option value="expense" <?= $catForm['section'] === 'expense' ? 'selected' : '' ?>>Expense</option>
+          <option value="land_purchase" <?= $catForm['section'] === 'land_purchase' ? 'selected' : '' ?>>Land Purchase</option>
+        </select>
+        <p class="muted" style="font-size:0.78rem;margin:0.4rem 0 0">Both types appear in the Add expense dropdown and count toward expense totals.</p>
+      </div>
+      <div class="full">
+        <label>Already under this type</label>
+        <p class="muted" id="cat_existing" style="font-size:0.82rem;margin:0;line-height:1.5;overflow-wrap:anywhere"></p>
+      </div>
+      <div class="full" id="cat_error" style="<?= $catError ? '' : 'display:none;' ?>color:var(--danger,#dc2626);font-size:0.85rem;font-weight:600;overflow-wrap:anywhere"><?= e((string) $catError) ?></div>
+      <div class="full form-actions">
+        <button type="submit" class="btn btn-primary" id="cat_save">Save category</button>
+        <button type="button" class="btn btn-outline" id="cancelCategoryModal">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  (function () {
+    var CATS = <?= json_encode($catByType, JSON_UNESCAPED_UNICODE) ?>;
+    var modal = document.getElementById('addCategoryModal');
+    var nameEl = document.getElementById('cat_name');
+    var sectionEl = document.getElementById('cat_section');
+    var existingEl = document.getElementById('cat_existing');
+    var errorEl = document.getElementById('cat_error');
+    var saveBtn = document.getElementById('cat_save');
+
+    // Same rule as the server: names are the same if they match ignoring case, or normalise to the same latin text.
+    function norm(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); }
+    function refresh() {
+      var list = CATS[sectionEl.value] || [];
+      existingEl.textContent = list.length ? list.join(' · ') : 'Nothing yet.';
+      var value = nameEl.value.trim().replace(/\s+/g, ' ');
+      var shape = norm(value);
+      var dup = '';
+      if (value) {
+        list.forEach(function (x) {
+          if (!dup && (x.toLowerCase() === value.toLowerCase() || (shape && norm(x) === shape))) dup = x;
+        });
+      }
+      if (dup) {
+        errorEl.textContent = '“' + dup + '” already exists under this type.';
+        errorEl.style.display = '';
+      } else if (!<?= $catError ? 'true' : 'false' ?> || nameEl.dataset.touched) {
+        errorEl.style.display = 'none';
+      }
+      saveBtn.disabled = !!dup || !value;
+    }
+    function openModal() { modal.style.display = ''; refresh(); nameEl.focus(); }
+    function closeModal() { modal.style.display = 'none'; }
+
+    document.getElementById('openCategoryModal').addEventListener('click', openModal);
+    document.getElementById('closeCategoryModal').addEventListener('click', closeModal);
+    document.getElementById('cancelCategoryModal').addEventListener('click', closeModal);
+    modal.addEventListener('click', function (e) { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal.style.display !== 'none') closeModal(); });
+    nameEl.addEventListener('input', function () { nameEl.dataset.touched = '1'; refresh(); });
+    sectionEl.addEventListener('change', refresh);
+    refresh();
+    <?php if ($catError): ?>nameEl.focus();<?php endif; ?>
+  })();
+</script>
 <?php require __DIR__ . '/../includes/footer.php'; ?>

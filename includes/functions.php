@@ -574,6 +574,83 @@ function find_category_id(PDO $pdo, ?int $explicitId = null, ?string $section = 
     return null;
 }
 
+/** Slugs the code treats specially wherever they appear; a user-created category must never reuse one. */
+const RESERVED_CATEGORY_SLUGS = [
+    'investment', 'daily_credit', 'monthly_credit', 'investment_withdrawal', 'daily_debit', 'monthly_debit',
+    'investment_interest_paid', 'booking', 'booking_refund', 'partner', 'partner_capital', 'partner_advance',
+    'partner_capital_withdrawal', 'partner_advance_return', 'bank_loan', 'bank_account', 'bank_transfer',
+    'deposit', 'asset_purchase', 'loan_repayment', 'interest_paid',
+];
+
+/** "Site Survey & Levelling" -> "site_survey_levelling" (matches the underscore style of the seeded slugs). */
+function category_slug_from_name(string $name): string
+{
+    $slug = trim((string) preg_replace('/[^a-z0-9]+/', '_', strtolower($name)), '_');
+    return $slug !== '' ? substr($slug, 0, 70) : 'category';
+}
+
+/**
+ * Creates a category in the Expense or Land Purchase section — the two sections that feed the Expenses page,
+ * the Add expense picker and the expense totals.
+ *
+ * @return array{ok:bool, error?:string, id?:int, name?:string, section?:string}
+ */
+function create_category(PDO $pdo, string $section, string $name): array
+{
+    $sectionLabels = ['expense' => 'Expense', 'land_purchase' => 'Land Purchase'];
+    if (!isset($sectionLabels[$section])) {
+        return ['ok' => false, 'error' => 'Choose whether this is an Expense or a Land Purchase category.'];
+    }
+    $name = trim((string) (preg_replace('/\s+/u', ' ', $name) ?? $name));
+    if ($name === '') {
+        return ['ok' => false, 'error' => 'Category name is required.'];
+    }
+    if (mb_strlen($name) > 120) {
+        return ['ok' => false, 'error' => 'Category name must be 120 characters or fewer.'];
+    }
+
+    // Duplicate = same name (any case), or a name that normalises to the same thing ("Office-Expenses" vs "Office Expenses").
+    $slugBase = category_slug_from_name($name);
+    $existing = $pdo->prepare('SELECT name FROM categories WHERE section = ?');
+    $existing->execute([$section]);
+    foreach ($existing->fetchAll(PDO::FETCH_COLUMN) as $existingName) {
+        $sameName = mb_strtolower((string) $existingName) === mb_strtolower($name);
+        // Names with no latin letters/digits all normalise to "category", so only exact matches count for them.
+        $sameShape = $slugBase !== 'category' && category_slug_from_name((string) $existingName) === $slugBase;
+        if ($sameName || $sameShape) {
+            return ['ok' => false, 'error' => '“' . $existingName . '” already exists under ' . $sectionLabels[$section] . '.'];
+        }
+    }
+
+    // Unique slug within the section, and never one of the slugs the code special-cases.
+    $slugTaken = $pdo->prepare('SELECT 1 FROM categories WHERE section = ? AND slug = ? LIMIT 1');
+    $slug = $slugBase;
+    for ($n = 2; $n < 100; $n++) {
+        $slugTaken->execute([$section, $slug]);
+        if (!in_array($slug, RESERVED_CATEGORY_SLUGS, true) && !$slugTaken->fetchColumn()) {
+            break;
+        }
+        $slug = substr($slugBase, 0, 70) . '_' . $n;
+    }
+
+    // New categories go to the end of their section (ignoring the 999 used by ad-hoc "Other" rows).
+    $maxSort = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) FROM categories WHERE section = ? AND sort_order < 900');
+    $maxSort->execute([$section]);
+    $sortOrder = min(890, (int) $maxSort->fetchColumn() + 10);
+
+    try {
+        $ins = $pdo->prepare('INSERT INTO categories (section, name, slug, sort_order) VALUES (?,?,?,?)');
+        $ins->execute([$section, $name, $slug, $sortOrder]);
+    } catch (PDOException $e) {
+        // Two people adding the same category at once: the unique (section, slug) key catches it.
+        if ((string) $e->getCode() === '23000') {
+            return ['ok' => false, 'error' => '“' . $name . '” was just added by someone else. Reload the page.'];
+        }
+        throw $e;
+    }
+    return ['ok' => true, 'id' => (int) $pdo->lastInsertId(), 'name' => $name, 'section' => $section];
+}
+
 function create_transaction(
     PDO $pdo,
     int $companyId,
